@@ -29,17 +29,26 @@ export function regionFromLocale(locale) {
 
 const enc = encodeURIComponent;
 
+// Where a platform supports structured search — field filters or typed
+// result routes — use it: free-text ranking drowns generic names ("Mine").
+// Everything below is live-verified 2026-08-20 in logged-out browsers;
+// platforms without documented syntax (Apple, YouTube, YT Music, Amazon)
+// stay plain free-text on purpose. See ENDPOINTS.md.
+const stripQuotes = (s) => String(s || '').replace(/"/g, '');
+const kindOf = (parts) => parts?.kind || 'track';
+
 export const PLATFORMS = [
   {
     key: 'spotify', name: 'Spotify',
-    // With both fields known, use Spotify's documented field filters —
-    // generic artist names ("Mine") drown in the ranking of a plain
-    // free-text search, while artist:… track:"…" is deterministic
-    // (verified in the logged-out web player, 2026-08-20).
+    // Documented field filters, work URL-encoded in the /search/ path.
     searchUrl: (q, r, parts) => {
+      const kind = kindOf(parts);
       if (parts?.artist && parts?.title) {
-        const title = parts.title.replace(/"/g, '');
-        return `https://open.spotify.com/search/${enc(`artist:${parts.artist} track:"${title}"`)}`;
+        const field = kind === 'album' ? 'album' : 'track';
+        return `https://open.spotify.com/search/${enc(`artist:${parts.artist} ${field}:"${stripQuotes(parts.title)}"`)}`;
+      }
+      if (parts?.artist && kind === 'artist') {
+        return `https://open.spotify.com/search/${enc(`artist:${parts.artist}`)}`;
       }
       return `https://open.spotify.com/search/${enc(q)}`;
     },
@@ -58,11 +67,21 @@ export const PLATFORMS = [
   },
   {
     key: 'deezer', name: 'Deezer',
-    searchUrl: (q) => `https://www.deezer.com/search/${enc(q)}`,
+    // The WEB search supports quoted field syntax (the JSONP API does not).
+    searchUrl: (q, r, parts) => {
+      if (parts?.artist && parts?.title) {
+        const field = kindOf(parts) === 'album' ? 'album' : 'track';
+        return `https://www.deezer.com/search/${enc(`artist:"${stripQuotes(parts.artist)}" ${field}:"${stripQuotes(parts.title)}"`)}`;
+      }
+      return `https://www.deezer.com/search/${enc(q)}`;
+    },
   },
   {
     key: 'tidal', name: 'TIDAL',
-    searchUrl: (q) => `https://tidal.com/search?q=${enc(q)}`,
+    searchUrl: (q, r, parts) => {
+      const route = { track: 'tracks', album: 'albums', artist: 'artists' }[kindOf(parts)] || 'tracks';
+      return `https://tidal.com/search/${route}?q=${enc(q)}`;
+    },
   },
   {
     key: 'amazonMusic', name: 'Amazon Music',
@@ -70,16 +89,25 @@ export const PLATFORMS = [
   },
   {
     key: 'soundcloud', name: 'SoundCloud',
-    searchUrl: (q) => `https://soundcloud.com/search?q=${enc(q)}`,
+    searchUrl: (q, r, parts) => {
+      const route = { track: 'sounds', album: 'albums', artist: 'people' }[kindOf(parts)] || 'sounds';
+      return `https://soundcloud.com/search/${route}?q=${enc(q)}`;
+    },
   },
   {
     key: 'bandcamp', name: 'Bandcamp',
-    searchUrl: (q) => `https://bandcamp.com/search?q=${enc(q)}`,
+    searchUrl: (q, r, parts) => {
+      const itemType = { track: 't', album: 'a', artist: 'b' }[kindOf(parts)] || 't';
+      return `https://bandcamp.com/search?q=${enc(q)}&item_type=${itemType}`;
+    },
   },
   {
     key: 'qobuz', name: 'Qobuz',
     // open.qobuz.com ignores ?q= — the typed path route on www.qobuz.com works.
-    searchUrl: (q, r) => `https://www.qobuz.com/${r.qobuzStorefront}/search/tracks/${enc(q)}`,
+    searchUrl: (q, r, parts) => {
+      const route = { track: 'tracks', album: 'albums', artist: 'artists' }[kindOf(parts)] || 'tracks';
+      return `https://www.qobuz.com/${r.qobuzStorefront}/search/${route}/${enc(q)}`;
+    },
   },
 ];
 

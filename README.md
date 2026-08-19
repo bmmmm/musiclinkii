@@ -69,6 +69,10 @@ platforms have no reliable scheme — on mobile their https links already open
 the native app via universal links. If the app isn't installed, browsers
 silently ignore the click.
 
+Every external endpoint and URL scheme this app relies on — with CORS
+status, verification date, code location and where to look when one
+breaks — is catalogued in [ENDPOINTS.md](ENDPOINTS.md).
+
 ## Development
 
 No build step, no dependencies. Serve the directory and open it:

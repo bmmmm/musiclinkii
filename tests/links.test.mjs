@@ -7,8 +7,8 @@ import { cleanTitle, splitDashTitle, looselyMatches, searchableTitle } from '../
 const DE = regionFromLocale('de-DE');
 const US = regionFromLocale('en-US');
 
-function searchUrl(key, q, region = DE) {
-  return PLATFORMS.find((p) => p.key === key).searchUrl(q, region);
+function searchUrl(key, q, region = DE, parts) {
+  return PLATFORMS.find((p) => p.key === key).searchUrl(q, region, parts);
 }
 
 test('search URL templates match the live-verified formats', () => {
@@ -18,10 +18,10 @@ test('search URL templates match the live-verified formats', () => {
   assert.equal(searchUrl('youtube', q), 'https://www.youtube.com/results?search_query=daft%20punk%20one%20more%20time');
   assert.equal(searchUrl('youtubeMusic', q), 'https://music.youtube.com/search?q=daft%20punk%20one%20more%20time');
   assert.equal(searchUrl('deezer', q), 'https://www.deezer.com/search/daft%20punk%20one%20more%20time');
-  assert.equal(searchUrl('tidal', q), 'https://tidal.com/search?q=daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('tidal', q), 'https://tidal.com/search/tracks?q=daft%20punk%20one%20more%20time');
   assert.equal(searchUrl('amazonMusic', q), 'https://music.amazon.de/search/daft%20punk%20one%20more%20time');
-  assert.equal(searchUrl('soundcloud', q), 'https://soundcloud.com/search?q=daft%20punk%20one%20more%20time');
-  assert.equal(searchUrl('bandcamp', q), 'https://bandcamp.com/search?q=daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('soundcloud', q), 'https://soundcloud.com/search/sounds?q=daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('bandcamp', q), 'https://bandcamp.com/search?q=daft%20punk%20one%20more%20time&item_type=t');
   // open.qobuz.com ignores ?q= — must be the typed path route on www.
   assert.equal(searchUrl('qobuz', q), 'https://www.qobuz.com/de-de/search/tracks/daft%20punk%20one%20more%20time');
 });
@@ -45,6 +45,37 @@ test('spotify search uses field filters when artist and title are known', () => 
 test('special characters are URL-encoded', () => {
   assert.equal(searchUrl('spotify', 'AC/DC T.N.T.'), 'https://open.spotify.com/search/AC%2FDC%20T.N.T.');
   assert.ok(searchUrl('tidal', 'Sigur Rós ágætis').includes('Sigur%20R%C3%B3s'));
+});
+
+test('structured search follows the entity kind where supported', () => {
+  const album = { artist: 'Daft Punk', title: 'Discovery', kind: 'album' };
+  const artistOnly = { artist: 'Daft Punk', title: '', kind: 'artist' };
+  assert.equal(
+    searchUrl('spotify', 'Daft Punk Discovery', DE, album),
+    'https://open.spotify.com/search/artist%3ADaft%20Punk%20album%3A%22Discovery%22'
+  );
+  assert.equal(
+    searchUrl('spotify', 'Daft Punk', DE, artistOnly),
+    'https://open.spotify.com/search/artist%3ADaft%20Punk'
+  );
+  assert.equal(
+    searchUrl('deezer', 'Mine Ohne dich', DE, { artist: 'Mine', title: 'Ohne dich', kind: 'track' }),
+    'https://www.deezer.com/search/artist%3A%22Mine%22%20track%3A%22Ohne%20dich%22'
+  );
+  assert.equal(
+    searchUrl('deezer', 'Daft Punk Discovery', DE, album),
+    'https://www.deezer.com/search/artist%3A%22Daft%20Punk%22%20album%3A%22Discovery%22'
+  );
+  assert.equal(searchUrl('tidal', 'x', DE, album), 'https://tidal.com/search/albums?q=x');
+  assert.equal(searchUrl('tidal', 'x', DE, artistOnly), 'https://tidal.com/search/artists?q=x');
+  assert.equal(searchUrl('soundcloud', 'x', DE, album), 'https://soundcloud.com/search/albums?q=x');
+  assert.equal(searchUrl('soundcloud', 'x', DE, artistOnly), 'https://soundcloud.com/search/people?q=x');
+  assert.equal(searchUrl('bandcamp', 'x', DE, album), 'https://bandcamp.com/search?q=x&item_type=a');
+  assert.equal(searchUrl('bandcamp', 'x', DE, artistOnly), 'https://bandcamp.com/search?q=x&item_type=b');
+  assert.equal(searchUrl('qobuz', 'x', DE, album), 'https://www.qobuz.com/de-de/search/albums/x');
+  assert.equal(searchUrl('qobuz', 'x', DE, artistOnly), 'https://www.qobuz.com/de-de/search/artists/x');
+  // Unknown kinds fall back to the track route, not a broken URL.
+  assert.equal(searchUrl('tidal', 'x', DE, { kind: 'playlist' }), 'https://tidal.com/search/tracks?q=x');
 });
 
 test('regionFromLocale storefront mapping', () => {

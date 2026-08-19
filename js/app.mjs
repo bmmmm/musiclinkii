@@ -46,7 +46,11 @@ function debounce(fn, ms) {
 
 function render() {
   const query = buildQuery(el.artist.value, el.title.value);
-  const parts = { artist: el.artist.value.trim(), title: el.title.value.trim() };
+  const parts = {
+    artist: el.artist.value.trim(),
+    title: el.title.value.trim(),
+    kind: state.parsed?.kind || 'track',
+  };
   el.results.hidden = !query && Object.keys(state.exact).length === 0;
   if (el.results.hidden) return;
 
@@ -161,6 +165,7 @@ const enrich = debounce(async () => {
 }, 500);
 
 function resetTrack() {
+  state.parsed = null;
   state.exact = {};
   state.sourceKeys = [];
   el.artist.value = '';
