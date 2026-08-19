@@ -49,8 +49,9 @@ test('appLinkFor: only documented schemes (Spotify) plus Deezer best effort', ()
     'spotify:track:0Jcij1eWd5bDMU5iPbxe2i');
   assert.equal(appLinkFor(parse('https://www.deezer.com/track/3135556')).href,
     'deezer://www.deezer.com/track/3135556');
+  assert.equal(appLinkFor(parse('https://music.apple.com/us/album/x/1035047659?i=1035048414')).href,
+    'music://music.apple.com/us/album/1035047659?i=1035048414');
   assert.equal(appLinkFor(parse('https://tidal.com/track/86024647')), null);
-  assert.equal(appLinkFor(parse('https://music.apple.com/de/song/x/1499378615')), null);
   assert.equal(appLinkFor(parse('https://youtu.be/dQw4w9WgXcQ')), null);
   assert.equal(appLinkFor(null), null);
 });

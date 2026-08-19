@@ -66,6 +66,15 @@ natively. Tests: `tests/parsers.test.mjs`.
 
 - `spotify:{kind}:{id}` — [IANA-registered](https://www.iana.org/assignments/uri-schemes/prov/spotify), documented by Spotify.
 - `deezer://www.deezer.com/{kind}/{id}` — community practice, best effort.
-- Everything else has no documented scheme (checked 2026-08-20: Apple,
-  Tidal, YouTube Music, Amazon, SoundCloud, Qobuz) — https universal
-  links already open those apps on mobile.
+- `music://music.apple.com/…` — the `https→music` transform of the
+  canonical URL; long-standing pattern on Apple platforms, not formally
+  documented. Best effort.
+- Everything else has no documented scheme (checked 2026-08-20: Tidal,
+  YouTube Music, Amazon, SoundCloud, Qobuz) — https universal links
+  already open those apps on mobile.
+
+## Share links
+
+`#l={encodeURIComponent(pasted link)}` in the fragment — parsed on load
+(`js/app.mjs`), built by `shareHashFor`/`linkFromHash` in `js/links.mjs`.
+Fragment-only by design: it never reaches a server.

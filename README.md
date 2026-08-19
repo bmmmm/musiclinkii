@@ -63,11 +63,18 @@ from streaming providers before that. Tracking parameters in pasted links
 (`?si=`, `ref=dm_sh_…`, `marketplaceId`, …) are stripped: every shown link is
 rebuilt canonically from the parsed ID.
 
-**App links** exist only where a URL scheme is actually documented:
-`spotify:track:{id}` (IANA-registered) and, best effort, `deezer://`. Other
-platforms have no reliable scheme — on mobile their https links already open
-the native app via universal links. If the app isn't installed, browsers
-silently ignore the click.
+**App links** exist where a URL scheme is documented or well-established:
+`spotify:track:{id}` (IANA-registered), `deezer://` and Apple Music via the
+`music://` URL transform (both best effort). Other platforms have no
+reliable scheme — on mobile their https links already open the native app
+via universal links. If the app isn't installed, browsers silently ignore
+the click.
+
+**Sharing**: the pasted link lives in the page URL as `#l=…`, so the
+address bar is always a shareable permalink (the Share button uses the
+system share sheet where available, clipboard otherwise). The fragment
+never reaches any server. The Copy button next to Artist/Title copies
+plain `Artist - Title` text.
 
 Every external endpoint and URL scheme this app relies on — with CORS
 status, verification date, code location and where to look when one

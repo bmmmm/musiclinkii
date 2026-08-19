@@ -29,12 +29,18 @@
         <label for="title-input">Title</label>
         <input id="title-input" type="text" autocomplete="off" placeholder="Title">
       </div>
+      <button id="copy-meta" class="btn" type="button"
+              title="Copy “Artist - Title” as text">Copy</button>
     </section>
 
     <section id="results" hidden aria-label="Platform links">
       <div class="results-head">
         <h2>Listen on</h2>
-        <button id="copy-all" class="btn" type="button">Copy all</button>
+        <div class="results-actions">
+          <button id="share" class="btn" type="button"
+                  title="Share this page with the pasted link included">Share</button>
+          <button id="copy-all" class="btn" type="button">Copy all</button>
+        </div>
       </div>
       <div id="cards"></div>
       <p class="legend">

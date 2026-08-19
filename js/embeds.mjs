@@ -73,5 +73,14 @@ export function appLinkFor(parsed) {
       title: 'Open in the Deezer app — nothing happens if it isn’t installed',
     };
   }
+  if (parsed.platform === 'appleMusic' && parsed.url?.startsWith('https://music.apple.com/')) {
+    // No formally documented scheme, but the music:// transform of the
+    // canonical URL is the long-standing pattern that opens the Music
+    // app on Apple platforms. Best effort.
+    return {
+      href: parsed.url.replace(/^https:\/\//, 'music://'),
+      title: 'Open in the Apple Music app — best effort, nothing happens if it isn’t installed',
+    };
+  }
   return null;
 }

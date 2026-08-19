@@ -2,7 +2,7 @@
 // UI orchestration: paste → parse → fetch metadata → render cards.
 
 import { parseInput } from './parsers.mjs';
-import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys } from './links.mjs';
+import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
 import { fetchMetadata, findExactLinks } from './adapters.mjs';
 import { iconSvg } from './icons.mjs';
 import { embedFor, appLinkFor } from './embeds.mjs';
@@ -19,6 +19,8 @@ const el = {
   results: $('#results'),
   cards: $('#cards'),
   copyAll: $('#copy-all'),
+  copyMeta: $('#copy-meta'),
+  share: $('#share'),
 };
 
 const region = regionFromLocale(navigator.language);
@@ -140,6 +142,23 @@ el.copyAll.addEventListener('click', () => {
   copyText(lines.join('\n'), el.copyAll);
 });
 
+el.copyMeta.addEventListener('click', () => {
+  const text = [el.artist.value.trim(), el.title.value.trim()].filter(Boolean).join(' - ');
+  if (text) copyText(text, el.copyMeta);
+});
+
+el.share.addEventListener('click', async () => {
+  const url = location.href;
+  const text = buildQuery(el.artist.value, el.title.value);
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'musiclinkii', text, url });
+      return;
+    } catch { /* user cancelled or unsupported payload — fall back to copy */ }
+  }
+  copyText(url, el.share);
+});
+
 const enrich = debounce(async () => {
   const gen = state.generation;
   const artist = el.artist.value.trim();
@@ -185,10 +204,13 @@ async function handleInput() {
 
   if (!raw.trim()) {
     setStatus('');
+    history.replaceState(null, '', location.pathname + location.search);
     return;
   }
 
   const parsed = parseInput(raw);
+  // Keep the address bar shareable: the pasted link travels in the hash.
+  history.replaceState(null, '', location.pathname + location.search + (parsed.ok ? shareHashFor(raw) : ''));
   if (!parsed.ok) {
     if (parsed.reason === 'shortlink' || parsed.reason === 'smartlink') setStatus(parsed.note, 'warn');
     else setStatus('That doesn’t look like a music link from a known platform.', 'warn');
@@ -230,6 +252,13 @@ for (const field of [el.artist, el.title]) {
     render();
     enrich();
   });
+}
+
+// Arriving via a share link (#l=…): populate and resolve immediately.
+const sharedLink = linkFromHash(location.hash);
+if (sharedLink) {
+  el.input.value = sharedLink;
+  handleInput();
 }
 
 el.input.focus();

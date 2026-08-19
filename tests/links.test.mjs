@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys } from '../js/links.mjs';
+import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from '../js/links.mjs';
 import { cleanTitle, splitDashTitle, looselyMatches, searchableTitle } from '../js/adapters.mjs';
 
 const DE = regionFromLocale('de-DE');
@@ -28,9 +28,15 @@ test('search URL templates match the live-verified formats', () => {
 
 test('spotify search uses field filters when artist and title are known', () => {
   const p = PLATFORMS.find((x) => x.key === 'spotify');
+  // Multi-word artists must be quoted or only the first word binds to
+  // the filter (reported with "Dilated Peoples").
   assert.equal(
     p.searchUrl('Mine Ohne dich', DE, { artist: 'Mine', title: 'Ohne dich' }),
-    'https://open.spotify.com/search/artist%3AMine%20track%3A%22Ohne%20dich%22'
+    'https://open.spotify.com/search/artist%3A%22Mine%22%20track%3A%22Ohne%20dich%22'
+  );
+  assert.equal(
+    p.searchUrl('x', DE, { artist: 'Dilated Peoples', title: 'Worst Comes To Worst' }),
+    'https://open.spotify.com/search/artist%3A%22Dilated%20Peoples%22%20track%3A%22Worst%20Comes%20To%20Worst%22'
   );
   // Quotes inside the title must not break the quoted filter.
   assert.ok(!p.searchUrl('q', DE, { artist: 'a-ha', title: 'Take On Me (12" Mix)' }).includes('%22%20Mix'));
@@ -52,11 +58,11 @@ test('structured search follows the entity kind where supported', () => {
   const artistOnly = { artist: 'Daft Punk', title: '', kind: 'artist' };
   assert.equal(
     searchUrl('spotify', 'Daft Punk Discovery', DE, album),
-    'https://open.spotify.com/search/artist%3ADaft%20Punk%20album%3A%22Discovery%22'
+    'https://open.spotify.com/search/artist%3A%22Daft%20Punk%22%20album%3A%22Discovery%22'
   );
   assert.equal(
     searchUrl('spotify', 'Daft Punk', DE, artistOnly),
-    'https://open.spotify.com/search/artist%3ADaft%20Punk'
+    'https://open.spotify.com/search/artist%3A%22Daft%20Punk%22'
   );
   assert.equal(
     searchUrl('deezer', 'Mine Ohne dich', DE, { artist: 'Mine', title: 'Ohne dich', kind: 'track' }),
@@ -86,6 +92,15 @@ test('regionFromLocale storefront mapping', () => {
   // Unknown locales fall back to a working US storefront.
   assert.equal(regionFromLocale('xx-YY').amazonTld, 'com');
   assert.equal(regionFromLocale('').qobuzStorefront, 'us-en');
+});
+
+test('share hash round-trips the pasted link', () => {
+  const link = 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i?si=x';
+  assert.equal(linkFromHash(shareHashFor(link)), link);
+  assert.equal(shareHashFor('  '), '');
+  assert.equal(linkFromHash(''), null);
+  assert.equal(linkFromHash('#other=1'), null);
+  assert.equal(linkFromHash('#l=%E2'), null);
 });
 
 test('buildQuery joins and trims', () => {

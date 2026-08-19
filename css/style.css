@@ -147,6 +147,13 @@ h1 {
   margin-bottom: 0.7rem;
 }
 
+.results-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+#copy-meta { align-self: center; }
+
 .results-head h2 { margin: 0; font-size: 1.1rem; }
 
 #cards {

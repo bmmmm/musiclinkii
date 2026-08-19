@@ -45,10 +45,10 @@ export const PLATFORMS = [
       const kind = kindOf(parts);
       if (parts?.artist && parts?.title) {
         const field = kind === 'album' ? 'album' : 'track';
-        return `https://open.spotify.com/search/${enc(`artist:${parts.artist} ${field}:"${stripQuotes(parts.title)}"`)}`;
+        return `https://open.spotify.com/search/${enc(`artist:"${stripQuotes(parts.artist)}" ${field}:"${stripQuotes(parts.title)}"`)}`;
       }
       if (parts?.artist && kind === 'artist') {
-        return `https://open.spotify.com/search/${enc(`artist:${parts.artist}`)}`;
+        return `https://open.spotify.com/search/${enc(`artist:"${stripQuotes(parts.artist)}"`)}`;
       }
       return `https://open.spotify.com/search/${enc(q)}`;
     },
@@ -122,4 +122,21 @@ export function sourceCardKeys(parsed) {
 
 export function buildQuery(artist, title) {
   return [artist, title].map((s) => (s || '').trim()).filter(Boolean).join(' ');
+}
+
+// Shareable permalink: the pasted link travels in the fragment, which
+// never reaches any server (not even GitHub Pages logs).
+export function shareHashFor(link) {
+  const trimmed = (link || '').trim();
+  return trimmed ? `#l=${encodeURIComponent(trimmed)}` : '';
+}
+
+export function linkFromHash(hash) {
+  const m = /^#l=(.+)$/.exec(hash || '');
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return null;
+  }
 }
