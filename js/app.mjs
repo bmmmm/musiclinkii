@@ -46,6 +46,7 @@ function debounce(fn, ms) {
 
 function render() {
   const query = buildQuery(el.artist.value, el.title.value);
+  const parts = { artist: el.artist.value.trim(), title: el.title.value.trim() };
   el.results.hidden = !query && Object.keys(state.exact).length === 0;
   if (el.results.hidden) return;
 
@@ -54,7 +55,7 @@ function render() {
   for (const p of PLATFORMS) {
     const exactUrl = state.exact[p.key];
     const isSource = state.sourceKeys.includes(p.key);
-    const url = exactUrl || (query ? p.searchUrl(query, region) : null);
+    const url = exactUrl || (query ? p.searchUrl(query, region, parts) : null);
     if (!url) continue;
 
     // Exact URLs (source or match) are entities our own parser understands —

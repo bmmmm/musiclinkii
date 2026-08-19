@@ -32,7 +32,17 @@ const enc = encodeURIComponent;
 export const PLATFORMS = [
   {
     key: 'spotify', name: 'Spotify',
-    searchUrl: (q) => `https://open.spotify.com/search/${enc(q)}`,
+    // With both fields known, use Spotify's documented field filters —
+    // generic artist names ("Mine") drown in the ranking of a plain
+    // free-text search, while artist:… track:"…" is deterministic
+    // (verified in the logged-out web player, 2026-08-20).
+    searchUrl: (q, r, parts) => {
+      if (parts?.artist && parts?.title) {
+        const title = parts.title.replace(/"/g, '');
+        return `https://open.spotify.com/search/${enc(`artist:${parts.artist} track:"${title}"`)}`;
+      }
+      return `https://open.spotify.com/search/${enc(q)}`;
+    },
   },
   {
     key: 'appleMusic', name: 'Apple Music',

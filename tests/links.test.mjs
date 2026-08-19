@@ -26,6 +26,22 @@ test('search URL templates match the live-verified formats', () => {
   assert.equal(searchUrl('qobuz', q), 'https://www.qobuz.com/de-de/search/tracks/daft%20punk%20one%20more%20time');
 });
 
+test('spotify search uses field filters when artist and title are known', () => {
+  const p = PLATFORMS.find((x) => x.key === 'spotify');
+  assert.equal(
+    p.searchUrl('Mine Ohne dich', DE, { artist: 'Mine', title: 'Ohne dich' }),
+    'https://open.spotify.com/search/artist%3AMine%20track%3A%22Ohne%20dich%22'
+  );
+  // Quotes inside the title must not break the quoted filter.
+  assert.ok(!p.searchUrl('q', DE, { artist: 'a-ha', title: 'Take On Me (12" Mix)' }).includes('%22%20Mix'));
+  // Title-only stays a plain free-text search.
+  assert.equal(
+    p.searchUrl('Ohne dich', DE, { artist: '', title: 'Ohne dich' }),
+    'https://open.spotify.com/search/Ohne%20dich'
+  );
+  assert.equal(p.searchUrl('plain', DE), 'https://open.spotify.com/search/plain');
+});
+
 test('special characters are URL-encoded', () => {
   assert.equal(searchUrl('spotify', 'AC/DC T.N.T.'), 'https://open.spotify.com/search/AC%2FDC%20T.N.T.');
   assert.ok(searchUrl('tidal', 'Sigur Rós ágætis').includes('Sigur%20R%C3%B3s'));
