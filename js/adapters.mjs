@@ -263,13 +263,29 @@ export async function findExactLinks({ artist, title }, region) {
   } else {
     // Title-only (e.g. Spotify oEmbed gives no artist): only trust a match
     // when two independent catalogs agree on the artist for an exact-title
-    // hit — a single catalog's top hit is too often the wrong song.
+    // hit — a single catalog's top hit is too often the wrong song (covers
+    // and remixes rank above the original in title-only searches).
     const d = dHits.find((t) => strictEq(t.title));
-    const i = iHits.find((t) => strictEq(t.trackName));
-    if (d && i && looselyMatches(d.artist?.name, i.artistName)) {
-      out.artist = d.artist.name;
-      out.deezer = d.link;
-      out.appleMusic = i.trackViewUrl;
+    if (d?.artist?.name) {
+      let iHit = iHits.find((t) =>
+        strictEq(t.trackName) && looselyMatches(t.artistName, d.artist.name));
+      if (!iHit) {
+        // The original may rank below covers in the title-only results —
+        // confirm with a second, artist-targeted iTunes search.
+        try {
+          const confirm = await getJson(
+            `https://itunes.apple.com/search?term=${encodeURIComponent(`${d.artist.name} ${qTitle}`)}` +
+            `&media=music&entity=song&limit=10&country=${region.country}`
+          );
+          iHit = (confirm.results || []).find((t) =>
+            titleOk(t.trackName) && looselyMatches(t.artistName, d.artist.name));
+        } catch { /* no confirmation possible — stay conservative */ }
+      }
+      if (iHit) {
+        out.artist = d.artist.name;
+        out.deezer = d.link;
+        out.appleMusic = iHit.trackViewUrl;
+      }
     }
   }
 
