@@ -32,6 +32,29 @@ const SHORTLINK_HOSTS = {
   'snd.sc': 'SoundCloud short links can’t be expanded in the browser — open it once and paste the full soundcloud.com link.',
 };
 
+// Music smart-link services (Linkfire, Feature.fm, …). Their pages hold
+// the per-platform links, but none of them sends CORS headers (verified
+// 2026-08-20), so a static page cannot extract them — recognize and
+// explain instead. `dead: true` marks services that no longer resolve.
+const SMARTLINK_HOSTS = [
+  { match: (h) => h === 'lnk.to' || h.endsWith('.lnk.to'), name: 'Linkfire' },
+  { match: (h) => h === 'ffm.to', name: 'Feature.fm' },
+  { match: (h) => h === 'orcd.co', name: 'The Orchard' },
+  { match: (h) => h === 'bfan.link', name: 'Believe' },
+  { match: (h) => h === 'hyperfollow.com', name: 'DistroKid HyperFollow' },
+  { match: (h, segs) => h === 'distrokid.com' && segs[0] === 'hyperfollow', name: 'DistroKid HyperFollow' },
+  { match: (h) => h === 'hypeddit.com', name: 'Hypeddit' },
+  { match: (h) => h === 'click.soundplate.com' || h === 'clicks.soundplate.com', name: 'Soundplate' },
+  { match: (h) => h === 'show.co', name: 'Show.co' },
+  { match: (h) => h === 'smarturl.it' || h.endsWith('.smarturl.it'), name: 'smartURL', dead: true },
+  { match: (h) => h === 'fanlink.to', name: 'ToneDen fanlink.to', dead: true },
+];
+
+function smartlinkNote(name, dead) {
+  if (dead) return `${name} links are dead — the service shut down, this link won’t open anywhere.`;
+  return `This is a ${name} smart link. It already holds the per-platform links, but browsers block reading it from another site — open it, copy the link for one platform and paste that here.`;
+}
+
 export function parseInput(raw) {
   const text = (raw || '').trim();
   if (!text) return fail('empty');
@@ -52,6 +75,15 @@ export function parseInput(raw) {
   const segs = url.pathname.split('/').filter(Boolean);
 
   if (SHORTLINK_HOSTS[host]) return fail('shortlink', SHORTLINK_HOSTS[host]);
+
+  // song.link/album.link carry the source-platform ID in the path
+  // (s=Spotify, i=iTunes, y=YouTube, d=Deezer, t=Tidal) — natively
+  // resolvable even though the Odesli API itself is gone.
+  if (host === 'song.link' || host === 'album.link') {
+    return parseOdesliPage(host, segs);
+  }
+  const smart = SMARTLINK_HOSTS.find((s) => s.match(host, segs));
+  if (smart) return fail('smartlink', smartlinkNote(smart.name, smart.dead));
 
   if (host === 'open.spotify.com') return parseSpotify(url, segs);
   if (host === 'music.apple.com' || host === 'geo.music.apple.com' || host === 'itunes.apple.com') {
@@ -192,6 +224,29 @@ function parseBandcamp(host, segs) {
       `https://${artist}.bandcamp.com/${kind}/${slug}`, { artist, slug });
   }
   return fail('unrecognized');
+}
+
+function parseOdesliPage(host, segs) {
+  const kind = host === 'album.link' ? 'album' : 'track';
+  const [prefix, id] = segs;
+  if (prefix === 's' && id && SPOTIFY_ID.test(id)) {
+    return ok('spotify', kind, id, `https://open.spotify.com/${kind}/${id}`);
+  }
+  if (prefix === 'i' && id && NUMERIC_ID.test(id)) {
+    return kind === 'album'
+      ? ok('appleMusic', 'album', id, `https://music.apple.com/us/album/${id}`, { storefront: 'us' })
+      : ok('appleMusic', 'track', id, `https://music.apple.com/us/song/${id}`, { storefront: 'us' });
+  }
+  if (prefix === 'y' && id && YOUTUBE_ID.test(id)) {
+    return ok('youtube', 'track', id, `https://www.youtube.com/watch?v=${id}`);
+  }
+  if (prefix === 'd' && id && NUMERIC_ID.test(id)) {
+    return ok('deezer', kind, id, `https://www.deezer.com/${kind}/${id}`);
+  }
+  if (prefix === 't' && id && NUMERIC_ID.test(id)) {
+    return ok('tidal', kind, id, `https://tidal.com/${kind}/${id}`);
+  }
+  return fail('smartlink', smartlinkNote('song.link/album.link', false));
 }
 
 // Qobuz ID rule (live-verified 2026-08-20): album IDs are alphanumeric

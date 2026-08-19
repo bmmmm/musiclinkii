@@ -184,7 +184,7 @@ async function handleInput() {
 
   const parsed = parseInput(raw);
   if (!parsed.ok) {
-    if (parsed.reason === 'shortlink') setStatus(parsed.note, 'warn');
+    if (parsed.reason === 'shortlink' || parsed.reason === 'smartlink') setStatus(parsed.note, 'warn');
     else setStatus('That doesn’t look like a music link from a known platform.', 'warn');
     return;
   }

@@ -120,6 +120,40 @@ test('qobuz URL variants', () => {
   assert.equal(parseInput('https://www.qobuz.com/de-de/search/tracks/foo').ok, false);
 });
 
+test('song.link/album.link platform prefixes resolve natively', () => {
+  expectOk('https://song.link/s/0tgVpDi06FyKpA1z0VMD4v',
+    { platform: 'spotify', kind: 'track', id: '0tgVpDi06FyKpA1z0VMD4v' });
+  expectOk('https://song.link/i/1035048414',
+    { platform: 'appleMusic', kind: 'track', id: '1035048414' });
+  expectOk('https://song.link/y/dQw4w9WgXcQ', { platform: 'youtube', kind: 'track', id: 'dQw4w9WgXcQ' });
+  expectOk('https://song.link/d/3135556', { platform: 'deezer', kind: 'track', id: '3135556' });
+  expectOk('https://song.link/t/86024647', { platform: 'tidal', kind: 'track', id: '86024647' });
+  expectOk('https://album.link/s/4m2880jivSbbyEGAKfITCa',
+    { platform: 'spotify', kind: 'album', id: '4m2880jivSbbyEGAKfITCa' });
+  // Custom odesli slugs can't be resolved — flagged as smart link.
+  assert.equal(parseInput('https://song.link/some-custom-slug').reason, 'smartlink');
+});
+
+test('smart-link services are recognized and explained', () => {
+  for (const url of [
+    'https://taylor.lnk.to/SpeakNowTaylorsVersion',
+    'https://lnk.to/xyz',
+    'https://ffm.to/forevernowsf',
+    'https://orcd.co/o7vrxkn',
+    'https://bfan.link/a-digital-nowhere-deluxe',
+    'https://distrokid.com/hyperfollow/kylegee/bLAm',
+    'https://hypeddit.com/v7988l',
+  ]) {
+    const r = parseInput(url);
+    assert.equal(r.ok, false, url);
+    assert.equal(r.reason, 'smartlink', url);
+    assert.match(r.note, /smart link/i);
+  }
+  // Dead services get a dead notice instead.
+  assert.match(parseInput('https://smarturl.it/xyz').note, /dead|shut down/i);
+  assert.match(parseInput('https://fanlink.to/revenge').note, /dead|shut down/i);
+});
+
 test('garbage input fails cleanly', () => {
   assert.equal(parseInput('').ok, false);
   assert.equal(parseInput('   ').ok, false);

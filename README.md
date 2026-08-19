@@ -47,6 +47,16 @@ use it.
 Short links (`spotify.link`, `link.deezer.com`, `on.soundcloud.com`) can't be
 expanded client-side — open them once and paste the full URL instead.
 
+**Smart links** (Linkfire `lnk.to`, Feature.fm `ffm.to`, The Orchard
+`orcd.co`, Believe `bfan.link`, DistroKid HyperFollow, Hypeddit, …) are
+recognized and explained: those pages already hold every platform link, but
+none of the services sends CORS headers, so a static page can't read them —
+open the smart link and paste one platform link instead. Exception:
+`song.link`/`album.link` URLs with a platform prefix (`/s/`, `/i/`, `/y/`,
+`/d/`, `/t/`) carry the source ID in the path and resolve natively. The
+Feature.fm and Linkfire resolver APIs exist but are partner-gated — no
+self-service access a keyless static app could use.
+
 **Previews are click-to-load**: the embed iframe (and its third-party
 requests) only exists after you press the Preview button — nothing is loaded
 from streaming providers before that. Tracking parameters in pasted links
