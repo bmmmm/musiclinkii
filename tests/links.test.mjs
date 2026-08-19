@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys } from '../js/links.mjs';
+import { cleanTitle, splitDashTitle, looselyMatches, searchableTitle } from '../js/adapters.mjs';
+
+const DE = regionFromLocale('de-DE');
+const US = regionFromLocale('en-US');
+
+function searchUrl(key, q, region = DE) {
+  return PLATFORMS.find((p) => p.key === key).searchUrl(q, region);
+}
+
+test('search URL templates match the live-verified formats', () => {
+  const q = 'daft punk one more time';
+  assert.equal(searchUrl('spotify', q), 'https://open.spotify.com/search/daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('appleMusic', q), 'https://music.apple.com/de/search?term=daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('youtube', q), 'https://www.youtube.com/results?search_query=daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('youtubeMusic', q), 'https://music.youtube.com/search?q=daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('deezer', q), 'https://www.deezer.com/search/daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('tidal', q), 'https://tidal.com/search?q=daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('amazonMusic', q), 'https://music.amazon.de/search/daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('soundcloud', q), 'https://soundcloud.com/search?q=daft%20punk%20one%20more%20time');
+  assert.equal(searchUrl('bandcamp', q), 'https://bandcamp.com/search?q=daft%20punk%20one%20more%20time');
+  // open.qobuz.com ignores ?q= — must be the typed path route on www.
+  assert.equal(searchUrl('qobuz', q), 'https://www.qobuz.com/de-de/search/tracks/daft%20punk%20one%20more%20time');
+});
+
+test('special characters are URL-encoded', () => {
+  assert.equal(searchUrl('spotify', 'AC/DC T.N.T.'), 'https://open.spotify.com/search/AC%2FDC%20T.N.T.');
+  assert.ok(searchUrl('tidal', 'Sigur Rós ágætis').includes('Sigur%20R%C3%B3s'));
+});
+
+test('regionFromLocale storefront mapping', () => {
+  assert.deepEqual(DE, { country: 'de', appleStorefront: 'de', amazonTld: 'de', qobuzStorefront: 'de-de' });
+  assert.deepEqual(US, { country: 'us', appleStorefront: 'us', amazonTld: 'com', qobuzStorefront: 'us-en' });
+  assert.equal(regionFromLocale('en-GB').amazonTld, 'co.uk');
+  assert.equal(regionFromLocale('fr').country, 'fr');
+  // Unknown locales fall back to a working US storefront.
+  assert.equal(regionFromLocale('xx-YY').amazonTld, 'com');
+  assert.equal(regionFromLocale('').qobuzStorefront, 'us-en');
+});
+
+test('buildQuery joins and trims', () => {
+  assert.equal(buildQuery('Daft Punk', 'One More Time'), 'Daft Punk One More Time');
+  assert.equal(buildQuery('', 'One More Time'), 'One More Time');
+  assert.equal(buildQuery('  ', ''), '');
+});
+
+test('sourceCardKeys marks both YouTube cards for music.youtube links', () => {
+  assert.deepEqual(sourceCardKeys({ platform: 'youtube', meta: { music: true } }), ['youtube', 'youtubeMusic']);
+  assert.deepEqual(sourceCardKeys({ platform: 'youtube', meta: { music: false } }), ['youtube']);
+  assert.deepEqual(sourceCardKeys({ platform: 'deezer', meta: {} }), ['deezer']);
+});
+
+test('cleanTitle strips video noise', () => {
+  assert.equal(cleanTitle('Blinding Lights (Official Video)'), 'Blinding Lights');
+  assert.equal(cleanTitle('Song [Official Lyric Video] (4K)'), 'Song');
+  assert.equal(cleanTitle('Plain Title'), 'Plain Title');
+  assert.equal(cleanTitle('Keep (Not Noise) Brackets'), 'Keep (Not Noise) Brackets');
+});
+
+test('looselyMatches is token-based, not substring-based', () => {
+  assert.equal(looselyMatches('Kitchen', 'Kitchenware & Candybars'), false);
+  assert.equal(looselyMatches('Take On Me', 'Take On Me (1985 12" Mix) [2015 Remastered]'), true);
+  assert.equal(looselyMatches('The Weeknd', 'Weeknd'), true);
+  assert.equal(looselyMatches('a-ha', 'a‐ha'), true);
+  assert.equal(looselyMatches('Sigur Rós', 'sigur ros'), true);
+  assert.equal(looselyMatches('', 'anything'), false);
+});
+
+test('searchableTitle strips bracketed noise and quotes', () => {
+  assert.equal(searchableTitle('Take On Me (1985 12" Mix) [2015 Remastered]'), 'Take On Me');
+  assert.equal(searchableTitle('Plain Song'), 'Plain Song');
+  // A fully bracketed title must not collapse to nothing.
+  assert.equal(searchableTitle('(Untitled)'), '(Untitled)');
+});
+
+test('splitDashTitle splits artist from title', () => {
+  assert.deepEqual(splitDashTitle('The Weeknd - Blinding Lights'), { artist: 'The Weeknd', title: 'Blinding Lights' });
+  assert.deepEqual(splitDashTitle('A – B'), { artist: 'A', title: 'B' });
+  assert.equal(splitDashTitle('No separator here'), null);
+  assert.equal(splitDashTitle('Hyphen-ated word'), null);
+});
