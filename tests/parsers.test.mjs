@@ -107,6 +107,19 @@ test('bandcamp URL variants', () => {
   expectOk('https://artistname.bandcamp.com/album/some-album', { platform: 'bandcamp', kind: 'album' });
 });
 
+test('qobuz URL variants', () => {
+  expectOk('https://www.qobuz.com/de-de/album/uberall-kopf-3lna/mm9mf2wj0a54u',
+    { platform: 'qobuz', kind: 'album', id: 'mm9mf2wj0a54u', meta: { slug: 'uberall-kopf-3lna', storefront: 'de-de' } });
+  expectOk('https://www.qobuz.com/de-de/interpreter/daft-punk/36819',
+    { platform: 'qobuz', kind: 'artist', id: '36819' });
+  expectOk('https://open.qobuz.com/track/17985121',
+    { platform: 'qobuz', kind: 'track', id: '17985121', url: 'https://open.qobuz.com/track/17985121' });
+  expectOk('https://play.qobuz.com/album/qxjbxh1dc3xyb',
+    { platform: 'qobuz', kind: 'album', id: 'qxjbxh1dc3xyb', url: 'https://open.qobuz.com/album/qxjbxh1dc3xyb' });
+  expectOk('https://open.qobuz.com/artist/68534', { platform: 'qobuz', kind: 'artist', id: '68534' });
+  assert.equal(parseInput('https://www.qobuz.com/de-de/search/tracks/foo').ok, false);
+});
+
 test('garbage input fails cleanly', () => {
   assert.equal(parseInput('').ok, false);
   assert.equal(parseInput('   ').ok, false);

@@ -32,20 +32,32 @@ use it.
 
 ## Platform support
 
-| Platform | Parse input | Metadata | Exact link out | Search link out |
-|---|---|---|---|---|
-| Spotify | ✓ | title (oEmbed) | — | ✓ |
-| Apple Music | ✓ | ✓ (iTunes) | ✓ (iTunes match) | ✓ |
-| YouTube / YT Music | ✓ | ✓ (oEmbed) | same video | ✓ |
-| Deezer | ✓ | ✓ (JSONP) | ✓ (Deezer search) | ✓ |
-| TIDAL | ✓ | best effort (MusicBrainz) | — | ✓ |
-| Amazon Music | ✓ | — | — | ✓ |
-| SoundCloud | ✓ | best effort (oEmbed) | — | ✓ |
-| Bandcamp | ✓ | guessed from URL | — | ✓ |
-| Qobuz | — | — | — | ✓ |
+| Platform | Parse input | Metadata | Exact link out | Search link out | Preview embed | App link |
+|---|---|---|---|---|---|---|
+| Spotify | ✓ | title (oEmbed) | — | ✓ | ✓ | ✓ `spotify:` |
+| Apple Music | ✓ | ✓ (iTunes) | ✓ (iTunes match) | ✓ | — (embed player broken upstream) | — |
+| YouTube / YT Music | ✓ | ✓ (oEmbed) | same video | ✓ | ✓ (nocookie) | — |
+| Deezer | ✓ | ✓ (JSONP) | ✓ (Deezer search) | ✓ | ✓ | ✓ `deezer://` |
+| TIDAL | ✓ | best effort (MusicBrainz) | — | ✓ | ✓ | — |
+| Amazon Music | ✓ | — | — | ✓ | — | — |
+| SoundCloud | ✓ | best effort (oEmbed) | — | ✓ | ✓ | — |
+| Bandcamp | ✓ | guessed from URL | — | ✓ | — | — |
+| Qobuz | ✓ | guessed from URL | — | ✓ | — | — |
 
 Short links (`spotify.link`, `link.deezer.com`, `on.soundcloud.com`) can't be
 expanded client-side — open them once and paste the full URL instead.
+
+**Previews are click-to-load**: the embed iframe (and its third-party
+requests) only exists after you press the Preview button — nothing is loaded
+from streaming providers before that. Tracking parameters in pasted links
+(`?si=`, `ref=dm_sh_…`, `marketplaceId`, …) are stripped: every shown link is
+rebuilt canonically from the parsed ID.
+
+**App links** exist only where a URL scheme is actually documented:
+`spotify:track:{id}` (IANA-registered) and, best effort, `deezer://`. Other
+platforms have no reliable scheme — on mobile their https links already open
+the native app via universal links. If the app isn't installed, browsers
+silently ignore the click.
 
 ## Development
 

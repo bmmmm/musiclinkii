@@ -5,6 +5,7 @@ import { parseInput } from './parsers.mjs';
 import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys } from './links.mjs';
 import { fetchMetadata, findExactLinks } from './adapters.mjs';
 import { iconSvg } from './icons.mjs';
+import { embedFor, appLinkFor } from './embeds.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -48,6 +49,7 @@ function render() {
   el.results.hidden = !query && Object.keys(state.exact).length === 0;
   if (el.results.hidden) return;
 
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   el.cards.innerHTML = '';
   for (const p of PLATFORMS) {
     const exactUrl = state.exact[p.key];
@@ -55,22 +57,53 @@ function render() {
     const url = exactUrl || (query ? p.searchUrl(query, region) : null);
     if (!url) continue;
 
+    // Exact URLs (source or match) are entities our own parser understands —
+    // that's what unlocks embed previews and app links. Search URLs aren't.
+    const entity = exactUrl ? parseInput(exactUrl) : null;
+    const embed = entity ? embedFor(entity, dark) : null;
+    const app = entity ? appLinkFor(entity) : null;
+
     const card = document.createElement('div');
     card.className = 'card';
     card.dataset.platform = p.key;
     const badge = isSource ? 'source' : (exactUrl ? 'match' : 'search');
-    const badgeLabel = isSource ? 'source' : (exactUrl ? 'match' : 'search');
     card.innerHTML = `
-      ${iconSvg(p.key)}
-      <div class="card-body">
-        <span class="card-name">${p.name}</span>
-        <span class="badge badge-${badge}">${badgeLabel}</span>
+      <div class="card-row">
+        ${iconSvg(p.key)}
+        <div class="card-body">
+          <span class="card-name">${p.name}</span>
+          <span class="badge badge-${badge}">${badge}</span>
+        </div>
+        ${embed ? `<button class="btn btn-preview" type="button" aria-expanded="false"
+            data-src="${embed.src}" data-height="${embed.height || ''}" data-aspect="${embed.aspect || ''}"
+            title="Load the ${p.name} preview player (third-party content)">Preview</button>` : ''}
+        ${app ? `<a class="btn btn-app" href="${app.href}" title="${app.title}">App</a>` : ''}
+        <a class="btn btn-open" href="${url}" target="_blank" rel="noopener noreferrer">Open</a>
+        <button class="btn btn-copy" type="button" data-url="${url}" aria-label="Copy ${p.name} link">Copy</button>
       </div>
-      <a class="btn btn-open" href="${url}" target="_blank" rel="noopener noreferrer">Open</a>
-      <button class="btn btn-copy" type="button" data-url="${url}" aria-label="Copy ${p.name} link">Copy</button>
+      <div class="embed-slot" hidden></div>
     `;
     el.cards.appendChild(card);
   }
+}
+
+// Click-to-load: the iframe (and its third-party requests) only exists
+// after the user asks for it; a second click removes it again.
+function togglePreview(btn) {
+  const slot = btn.closest('.card').querySelector('.embed-slot');
+  const open = !slot.hidden;
+  slot.innerHTML = '';
+  slot.hidden = open;
+  btn.setAttribute('aria-expanded', String(!open));
+  if (open) return;
+  const iframe = document.createElement('iframe');
+  iframe.src = btn.dataset.src;
+  iframe.loading = 'lazy';
+  iframe.allow = 'encrypted-media; fullscreen; clipboard-write';
+  iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+  if (btn.dataset.aspect) iframe.style.aspectRatio = btn.dataset.aspect;
+  else iframe.height = btn.dataset.height;
+  slot.appendChild(iframe);
 }
 
 async function copyText(text, button) {
@@ -87,8 +120,10 @@ async function copyText(text, button) {
 }
 
 el.cards.addEventListener('click', (ev) => {
-  const btn = ev.target.closest('.btn-copy');
-  if (btn) copyText(btn.dataset.url, btn);
+  const copyBtn = ev.target.closest('.btn-copy');
+  if (copyBtn) copyText(copyBtn.dataset.url, copyBtn);
+  const previewBtn = ev.target.closest('.btn-preview');
+  if (previewBtn) togglePreview(previewBtn);
 });
 
 el.copyAll.addEventListener('click', () => {

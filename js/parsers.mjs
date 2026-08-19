@@ -74,6 +74,9 @@ export function parseInput(raw) {
   if (/^music\.amazon\.[a-z.]+$/.test(host)) return parseAmazon(url, segs, host);
   if (host === 'soundcloud.com') return parseSoundcloud(segs);
   if (host.endsWith('.bandcamp.com')) return parseBandcamp(host, segs);
+  if (host === 'qobuz.com' || host === 'open.qobuz.com' || host === 'play.qobuz.com') {
+    return parseQobuz(url, host, segs);
+  }
 
   return fail('unrecognized');
 }
@@ -187,6 +190,42 @@ function parseBandcamp(host, segs) {
   if ((kind === 'track' || kind === 'album') && slug) {
     return ok('bandcamp', kind, `${artist}/${kind}/${slug}`,
       `https://${artist}.bandcamp.com/${kind}/${slug}`, { artist, slug });
+  }
+  return fail('unrecognized');
+}
+
+// Qobuz ID rule (live-verified 2026-08-20): album IDs are alphanumeric
+// (e.g. "mm9mf2wj0a54u"), track/artist/playlist IDs are purely numeric.
+// The album ID is identical across www./open./play.qobuz.com.
+const QOBUZ_ALBUM_ID = /^[a-z0-9]{6,}$/i;
+
+function parseQobuz(url, host, segs) {
+  if (host === 'qobuz.com') {
+    // www.qobuz.com/{storefront}/album/{slug}/{albumId} — storefront like "de-de"
+    let storefront = '';
+    if (segs[0] && /^[a-z]{2}-[a-z]{2}$/i.test(segs[0])) {
+      storefront = segs[0].toLowerCase();
+      segs = segs.slice(1);
+    }
+    const [kind, slug, id] = segs;
+    if (kind === 'album' && slug && id && QOBUZ_ALBUM_ID.test(id)) {
+      return ok('qobuz', 'album', id, url.origin + url.pathname, { slug, storefront });
+    }
+    if (kind === 'interpreter' && slug && id && NUMERIC_ID.test(id)) {
+      return ok('qobuz', 'artist', id, url.origin + url.pathname, { slug, storefront });
+    }
+    return fail('unrecognized');
+  }
+  // open.qobuz.com / play.qobuz.com — bare IDs, no slug
+  const [kind, id] = segs;
+  if (kind === 'track' && id && NUMERIC_ID.test(id)) {
+    return ok('qobuz', 'track', id, `https://open.qobuz.com/track/${id}`);
+  }
+  if (kind === 'album' && id && QOBUZ_ALBUM_ID.test(id)) {
+    return ok('qobuz', 'album', id, `https://open.qobuz.com/album/${id}`);
+  }
+  if (kind === 'artist' && id && NUMERIC_ID.test(id)) {
+    return ok('qobuz', 'artist', id, `https://open.qobuz.com/artist/${id}`);
   }
   return fail('unrecognized');
 }

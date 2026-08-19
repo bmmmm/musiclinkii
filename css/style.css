@@ -156,14 +156,33 @@ h1 {
 }
 
 .card {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
   padding: 0.7rem 0.85rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 0.85rem;
   box-shadow: var(--shadow);
+}
+
+.card-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.7rem;
+}
+
+.card-row .card-body {
+  min-width: 7rem;
+}
+
+.embed-slot {
+  margin-top: 0.7rem;
+}
+
+.embed-slot iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0.6rem;
 }
 
 .icon {

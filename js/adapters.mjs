@@ -190,6 +190,21 @@ async function fromSoundcloud(parsed) {
   }
 }
 
+function fromQobuz(parsed) {
+  // No keyless CORS-open Qobuz endpoint exists (API is partner-keyed,
+  // autosuggest is auth-gated) — guess from the URL, no network call.
+  // Album slugs are "{album-title}-{artist}" (live-verified), so keeping
+  // every slug word puts title AND artist into the search query.
+  const words = slugToWords(parsed.meta?.slug);
+  const note = words
+    ? 'Qobuz has no keyless metadata API — guessed from the URL (slug holds title and artist together).'
+    : 'Qobuz has no keyless metadata API — enter artist and title above.';
+  if (parsed.kind === 'artist') {
+    return meta({ artist: words, exact: { qobuz: parsed.url }, note });
+  }
+  return meta({ title: words, exact: { qobuz: parsed.url }, note });
+}
+
 function fromBandcamp(parsed) {
   return meta({
     title: slugToWords(parsed.meta.slug),
@@ -215,6 +230,7 @@ export async function fetchMetadata(parsed) {
     case 'tidal': return fromTidal(parsed);
     case 'soundcloud': return fromSoundcloud(parsed);
     case 'bandcamp': return fromBandcamp(parsed);
+    case 'qobuz': return fromQobuz(parsed);
     case 'amazonMusic': return fromAmazon(parsed);
     default: throw new Error(`no adapter for ${parsed.platform}`);
   }

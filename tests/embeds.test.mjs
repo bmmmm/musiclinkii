@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseInput } from '../js/parsers.mjs';
+import { embedFor, appLinkFor } from '../js/embeds.mjs';
+
+const parse = (url) => parseInput(url);
+
+test('embedFor builds the documented embed URLs', () => {
+  assert.deepEqual(embedFor(parse('https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i'), true), {
+    src: 'https://open.spotify.com/embed/track/0Jcij1eWd5bDMU5iPbxe2i?utm_source=generator&theme=0',
+    height: 152,
+  });
+  assert.equal(embedFor(parse('https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i'), false).src.endsWith('theme=1'), true);
+  assert.deepEqual(embedFor(parse('https://youtu.be/dQw4w9WgXcQ')), {
+    src: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+    aspect: '16 / 9',
+  });
+  assert.deepEqual(embedFor(parse('https://www.deezer.com/track/3135556')), {
+    src: 'https://widget.deezer.com/widget/auto/track/3135556',
+    height: 150,
+  });
+  assert.deepEqual(embedFor(parse('https://tidal.com/album/528973835/u')), {
+    src: 'https://embed.tidal.com/albums/528973835',
+    height: 275,
+  });
+  assert.deepEqual(embedFor(parse('https://tidal.com/browse/track/86024647')), {
+    src: 'https://embed.tidal.com/tracks/86024647',
+    height: 120,
+  });
+  assert.equal(
+    embedFor(parse('https://soundcloud.com/forss/flickermood')).src,
+    'https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fforss%2Fflickermood&show_comments=false'
+  );
+});
+
+test('embedFor returns null where no embed is buildable', () => {
+  // Apple Music: disabled — player provably fails to initialize (2026-08-20).
+  assert.equal(embedFor(parse('https://music.apple.com/us/album/x/1035047659?i=1035048414')), null);
+  assert.equal(embedFor(parse('https://artistname.bandcamp.com/track/some-song')), null);
+  assert.equal(embedFor(parse('https://music.amazon.de/tracks/B0H3BMWT2H')), null);
+  assert.equal(embedFor(parse('https://open.qobuz.com/album/mm9mf2wj0a54u')), null);
+  assert.equal(embedFor({ ok: false }), null);
+  assert.equal(embedFor(null), null);
+});
+
+test('appLinkFor: only documented schemes (Spotify) plus Deezer best effort', () => {
+  assert.equal(appLinkFor(parse('https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i')).href,
+    'spotify:track:0Jcij1eWd5bDMU5iPbxe2i');
+  assert.equal(appLinkFor(parse('https://www.deezer.com/track/3135556')).href,
+    'deezer://www.deezer.com/track/3135556');
+  assert.equal(appLinkFor(parse('https://tidal.com/track/86024647')), null);
+  assert.equal(appLinkFor(parse('https://music.apple.com/de/song/x/1499378615')), null);
+  assert.equal(appLinkFor(parse('https://youtu.be/dQw4w9WgXcQ')), null);
+  assert.equal(appLinkFor(null), null);
+});
+
