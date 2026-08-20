@@ -70,6 +70,23 @@
     </p>
   </footer>
 
-  <script type="module" src="js/app.mjs"></script>
+  <!-- Cache busting without a build step: GitHub Pages caches for ~10 min
+       and browsers cache ES modules per URL, so a deploy could serve a
+       mixed old/new module chain. The import map below versions every
+       module a script imports; bump ALL ?v= values (map + script src)
+       together on each deploy so the whole chain updates atomically. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "./js/parsers.mjs": "./js/parsers.mjs?v=20260820",
+      "./js/links.mjs": "./js/links.mjs?v=20260820",
+      "./js/adapters.mjs": "./js/adapters.mjs?v=20260820",
+      "./js/cards.mjs": "./js/cards.mjs?v=20260820",
+      "./js/icons.mjs": "./js/icons.mjs?v=20260820",
+      "./js/embeds.mjs": "./js/embeds.mjs?v=20260820"
+    }
+  }
+  </script>
+  <script type="module" src="js/app.mjs?v=20260820"></script>
 </body>
 </html>

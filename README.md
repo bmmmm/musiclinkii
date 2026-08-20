@@ -89,11 +89,17 @@ python3 -m http.server 8000
 # → http://localhost:8000
 ```
 
-Run the tests (URL parsers and link builders are pure functions):
+Run the tests (URL parsers, link builders and card models are pure
+functions):
 
 ```sh
 node --test 'tests/*.test.mjs'
 ```
+
+**When deploying:** bump every `?v=` value in `index.html` (the import map
+plus the `<script src>`). GitHub Pages caches for ~10 minutes and browsers
+cache ES modules per URL — the versioned import map makes the whole module
+chain update atomically instead of mixing old and new files.
 
 ## Credits
 
