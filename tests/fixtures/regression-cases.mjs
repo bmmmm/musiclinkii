@@ -28,7 +28,7 @@ export const REGRESSION_CASES = [
   {
     input: 'https://www.deezer.com/track/3135556',
     parse: { platform: 'deezer', kind: 'track', id: '3135556' },
-    live: 'Daft Punk – One More Time. Deezer metadata carries the ISRC directly (GBDUW0000053) → MB → exact Spotify 0DiWol3AO6WpXZgp0goxAV (verified 2026-08-20).',
+    live: 'Daft Punk – Harder, Better, Faster, Stronger. Deezer metadata carries the ISRC directly → MB → exact Spotify 5W3cjX2J3tjhG8zb6u0qHn plus Tidal/YouTube matches (live-verified 2026-08-20).',
   },
   {
     input: 'https://music.apple.com/us/album/take-on-me-1985-12-mix-2015-remastered/1035047659?i=1035048414',
