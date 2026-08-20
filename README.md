@@ -36,7 +36,7 @@ use it.
 |---|---|---|---|---|---|---|
 | Spotify | ✓ | title (oEmbed) | best effort (ISRC → MusicBrainz) | ✓ (ISRC-precise where known) | ✓ | ✓ `spotify:` |
 | Apple Music | ✓ | ✓ (iTunes) | ✓ (iTunes match) | ✓ | — (embed player broken upstream) | — |
-| YouTube / YT Music | ✓ | ✓ (oEmbed) | same video | ✓ | ✓ (nocookie) | — |
+| YouTube / YT Music | ✓ | ✓ (oEmbed) | same video | ✓ (YT Music ISRC-precise where known) | ✓ (nocookie) | — |
 | Deezer | ✓ | ✓ (JSONP) | ✓ (Deezer search) | ✓ | ✓ | ✓ `deezer://` |
 | TIDAL | ✓ | best effort (MusicBrainz) | — | ✓ | ✓ | — |
 | Amazon Music | ✓ | — | — | ✓ | — | — |

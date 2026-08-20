@@ -94,6 +94,22 @@ h1 {
 
 #status[data-tone='warn'] { color: #c07a1c; }
 
+/* One-click artist suggestions inside the status line */
+.chip {
+  padding: 0.14rem 0.55rem;
+  margin: 0.1rem 0;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--badge-search-bg);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.chip:hover { border-color: var(--accent); }
+
 #track {
   display: flex;
   gap: 1rem;

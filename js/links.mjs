@@ -70,7 +70,16 @@ export const PLATFORMS = [
   },
   {
     key: 'youtubeMusic', name: 'YouTube Music',
-    searchUrl: (q) => `https://music.youtube.com/search?q=${enc(q)}`,
+    // Content-ID makes ISRCs searchable here: an ISRC query returns exactly
+    // the right song (Clockwork + fresh-2026 release verified logged-out
+    // 2026-08-20). Plain youtube.com ranks the Topic track first but buries
+    // the music video, so only the Music card searches by ISRC.
+    searchUrl: (q, r, parts) => {
+      if (parts?.isrc && kindOf(parts) === 'track') {
+        return `https://music.youtube.com/search?q=${enc(parts.isrc)}`;
+      }
+      return `https://music.youtube.com/search?q=${enc(q)}`;
+    },
   },
   {
     key: 'deezer', name: 'Deezer',

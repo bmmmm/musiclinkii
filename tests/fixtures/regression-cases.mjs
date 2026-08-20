@@ -41,6 +41,16 @@ export const REGRESSION_CASES = [
     live: 'Qobuz has no keyless metadata API — the slug (title+artist mixed) becomes the search guess, note explains it.',
   },
   {
+    input: 'https://open.spotify.com/intl-de/track/7piFVylkRO6hOmQanHlDOZ',
+    parse: { platform: 'spotify', kind: 'track', id: '7piFVylkRO6hOmQanHlDOZ' },
+    live: '"Cooked" (amelie) — reported: artist stayed empty. The title is shared by many artists, so guessing is wrong by design; the status line offers the catalog-confirmed artist candidates as one-click chips (amelie among them, verified 2026-08-20).',
+  },
+  {
+    input: 'https://music.apple.com/de/album/clockwork/715477135?i=715477207',
+    parse: { platform: 'appleMusic', kind: 'track', id: '715477207', meta: { storefront: 'de', albumId: '715477135' } },
+    live: 'Dilated Peoples – Clockwork — reported: no YouTube match. MB knows ISRC USCA20101085 but has zero url-rels; Content-ID saves the day: the YouTube Music ISRC search returns exactly this song (verified logged-out 2026-08-20), so the YT Music card searches by ISRC.',
+  },
+  {
     input: 'https://tidal.com/album/528973835/u',
     parse: { platform: 'tidal', kind: 'album', id: '528973835' },
     live: 'Tidal share links append /u — the parser must ignore the suffix. No keyless Tidal metadata; MB URL-relation fallback is best effort.',

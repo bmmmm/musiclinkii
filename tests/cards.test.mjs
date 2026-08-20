@@ -52,7 +52,7 @@ test('exact links render cards even without any query', () => {
   assert.equal(models[0].key, 'spotify');
 });
 
-test('a known ISRC turns only the spotify search into an isrc: search', () => {
+test('a known ISRC upgrades the spotify and youtube-music searches only', () => {
   const models = cardModels(
     { exact: {}, sourceKeys: [], kind: 'track', isrc: 'DE1TX2600017' },
     { artist: 'Mine', title: 'Ohne dich' }, DE, false
@@ -61,8 +61,13 @@ test('a known ISRC turns only the spotify search into an isrc: search', () => {
   assert.match(sp.url, /isrc%3ADE1TX2600017/);
   assert.equal(sp.viaIsrc, true);
   assert.equal(sp.badge, 'search');
+  const ytm = byKey(models, 'youtubeMusic');
+  assert.equal(ytm.url, 'https://music.youtube.com/search?q=DE1TX2600017');
+  assert.equal(ytm.viaIsrc, true);
+  assert.equal(models.filter((m) => m.viaIsrc).length, 2);
   assert.equal(byKey(models, 'deezer').viaIsrc, false);
   assert.doesNotMatch(byKey(models, 'deezer').url, /isrc/i);
+  assert.doesNotMatch(byKey(models, 'youtube').url, /DE1TX2600017/);
   // An exact spotify link (MusicBrainz hit) still wins over the isrc search.
   const withExact = cardModels(
     { exact: { spotify: 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i' }, sourceKeys: [], kind: 'track', isrc: 'DE1TX2600017' },

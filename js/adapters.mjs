@@ -354,9 +354,32 @@ export async function findExactLinks({ artist, title }, region) {
         out.artist = d.artist.name;
         out.deezer = d.link;
         out.appleMusic = iHit.trackViewUrl;
+      } else {
+        // Deezer's top hit found no backing at all — the title is shared
+        // by many artists ("Cooked"). Don't guess: offer the artists BOTH
+        // catalogs agree on and let the user pick with one click.
+        out.artistCandidates = artistCandidates(dHits, iHits, qTitle);
       }
     }
   }
 
   return out;
+}
+
+// Artists that appear with a strict-equal title in BOTH title-only result
+// lists (Deezer order kept — their ranking is the relevance signal).
+export function artistCandidates(dHits, iHits, qTitle) {
+  const strictEq = (cand) => normalize(searchableTitle(cand)) === normalize(qTitle);
+  const iStrict = (iHits || []).filter((t) => strictEq(t.trackName));
+  const seen = new Set();
+  const out = [];
+  for (const d of dHits || []) {
+    if (!strictEq(d.title)) continue;
+    const name = d.artist?.name || '';
+    const key = normalize(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (iStrict.some((t) => looselyMatches(t.artistName, name))) out.push(name);
+  }
+  return out.slice(0, 4);
 }

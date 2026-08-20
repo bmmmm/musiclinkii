@@ -41,6 +41,29 @@ function setStatus(text, tone = 'info') {
   el.status.hidden = !text;
 }
 
+// Title-only lookups on an ambiguous title ("Cooked") can't know which
+// artist the pasted track belongs to — offer the catalog-confirmed
+// candidates as one-click chips. Clicking runs the normal manual-edit
+// path (invalidate + re-enrich), so the full match cascade follows.
+function suggestArtists(names) {
+  el.status.textContent = '';
+  el.status.dataset.tone = 'info';
+  el.status.append('Which artist? ');
+  names.forEach((name, i) => {
+    if (i) el.status.append(' ');
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = name;
+    chip.addEventListener('click', () => {
+      el.artist.value = name;
+      el.artist.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    el.status.appendChild(chip);
+  });
+  el.status.hidden = false;
+}
+
 function debounce(fn, ms) {
   let timer;
   return (...args) => {
@@ -238,7 +261,8 @@ const enrich = debounce(async () => {
     }
     if (!el.artist.value.trim() && el.title.value.trim()
         && (el.status.hidden || el.status.dataset.tone !== 'warn')) {
-      setStatus('Artist unknown — add it above for better matches.', 'info');
+      if (found.artistCandidates?.length) suggestArtists(found.artistCandidates);
+      else setStatus('Artist unknown — add it above for better matches.', 'info');
     }
     render();
     await enrichViaIsrc(gen);

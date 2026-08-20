@@ -57,7 +57,7 @@ CORS-open) — do not rebuild on it.
 | Bandcamp | `bandcamp.com/search?q=&item_type={t\|a\|b}` | item_type facet |
 | Apple Music | `music.apple.com/{sf}/search?term=` | plain — no documented field syntax |
 | YouTube | `youtube.com/results?search_query=` | plain |
-| YouTube Music | `music.youtube.com/search?q=` | plain |
+| YouTube Music | `music.youtube.com/search?q=` | **plain ISRC as query when known** (tracks only) — Content-ID makes ISRCs searchable, returns exactly the right song incl. fresh releases (Clockwork + Mine verified logged-out 2026-08-20). Plain youtube.com ranks the Topic track first but buries the music video, and Tidal/Amazon return nothing/noise for ISRC queries (verified) — so only this card and Spotify search by ISRC. Else plain free-text |
 | Amazon Music | `music.amazon.{tld}/search/{q}` | plain |
 
 All builders live in `js/links.mjs` (`PLATFORMS[].searchUrl`), tests in

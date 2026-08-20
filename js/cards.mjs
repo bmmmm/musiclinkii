@@ -29,7 +29,8 @@ export function cardModels({ exact, sourceKeys, kind, isrc }, { artist, title },
       badge: sourceKeys.includes(p.key) ? 'source' : (exactUrl ? 'match' : 'search'),
       url,
       // ISRC-based searches land on exactly the right track — worth a hint.
-      viaIsrc: !exactUrl && url.includes('isrc%3A'),
+      // (ISRCs are alphanumeric, so a plain substring test is exact.)
+      viaIsrc: Boolean(!exactUrl && parts.isrc && url.includes(parts.isrc)),
       embed: entity ? embedFor(entity, dark) : null,
       app: entity ? appLinkFor(entity) : null,
     });

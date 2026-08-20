@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from '../js/links.mjs';
-import { cleanTitle, splitDashTitle, looselyMatches, searchableTitle } from '../js/adapters.mjs';
+import { cleanTitle, splitDashTitle, looselyMatches, searchableTitle, artistCandidates } from '../js/adapters.mjs';
 
 const DE = regionFromLocale('de-DE');
 const US = regionFromLocale('en-US');
@@ -24,6 +24,46 @@ test('search URL templates match the live-verified formats', () => {
   assert.equal(searchUrl('bandcamp', q), 'https://bandcamp.com/search?q=daft%20punk%20one%20more%20time&item_type=t');
   // open.qobuz.com ignores ?q= — must be the typed path route on www.
   assert.equal(searchUrl('qobuz', q), 'https://www.qobuz.com/de-de/search/tracks/daft%20punk%20one%20more%20time');
+});
+
+test('youtube music search uses the plain ISRC as query when known', () => {
+  const p = PLATFORMS.find((x) => x.key === 'youtubeMusic');
+  assert.equal(
+    p.searchUrl('Dilated Peoples Clockwork', DE, { artist: 'Dilated Peoples', title: 'Clockwork', kind: 'track', isrc: 'USCA20101085' }),
+    'https://music.youtube.com/search?q=USCA20101085'
+  );
+  assert.equal(
+    p.searchUrl('Dilated Peoples Clockwork', DE, { artist: 'Dilated Peoples', title: 'Clockwork', kind: 'track' }),
+    'https://music.youtube.com/search?q=Dilated%20Peoples%20Clockwork'
+  );
+  // plain youtube stays a free-text search even with an ISRC (the Topic
+  // track ranks first there but the music video gets buried)
+  const yt = PLATFORMS.find((x) => x.key === 'youtube');
+  assert.equal(
+    yt.searchUrl('Dilated Peoples Clockwork', DE, { artist: 'Dilated Peoples', title: 'Clockwork', kind: 'track', isrc: 'USCA20101085' }),
+    'https://www.youtube.com/results?search_query=Dilated%20Peoples%20Clockwork'
+  );
+});
+
+test('artistCandidates: artists both catalogs list for an ambiguous title', () => {
+  // The real "Cooked" shape (2026-08-20): Deezer's top hits are unconfirmed,
+  // the true artist (amelie) appears in both catalogs.
+  const dHits = [
+    { title: 'COOOK PARDON', artist: { name: 'Lvbel C5' } },
+    { title: 'COOKED', artist: { name: 'The Skinner Brothers' } },
+    { title: 'cooked', artist: { name: 'ase paperchase' } },
+    { title: 'Cooked', artist: { name: 'Amélie' } },
+    { title: 'Cooked', artist: { name: 'Samurai Breaks' } },
+    { title: 'Cooked', artist: { name: 'Amélie' } }, // duplicate artist
+  ];
+  const iHits = [
+    { trackName: 'Cooked', artistName: 'amelie' },
+    { trackName: 'Good Thing', artistName: 'Fine Young Cannibals' },
+    { trackName: 'Cooked', artistName: 'Samurai Breaks' },
+    { trackName: 'Overcooked', artistName: 'The Skinner Brothers' }, // different title → no confirm
+  ];
+  assert.deepEqual(artistCandidates(dHits, iHits, 'Cooked'), ['Amélie', 'Samurai Breaks']);
+  assert.deepEqual(artistCandidates([], iHits, 'Cooked'), []);
 });
 
 test('spotify search prefers the ISRC filter when an ISRC is known', () => {
