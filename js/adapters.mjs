@@ -35,12 +35,34 @@ function jsonp(url, timeoutMs = TIMEOUT_MS) {
       delete window[cb];
       script.remove();
     };
-    const timer = setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
+    const timer = setTimeout(() => {
+      // A script that still arrives later must find a callable — leave a
+      // self-removing stub instead of deleting (avoids a ReferenceError).
+      window[cb] = () => { delete window[cb]; };
+      script.remove();
+      reject(new Error('JSONP timeout'));
+    }, timeoutMs);
     window[cb] = (data) => { clearTimeout(timer); cleanup(); resolve(data); };
     script.onerror = () => { clearTimeout(timer); cleanup(); reject(new Error('JSONP load error')); };
     script.src = `${url}${url.includes('?') ? '&' : '?'}output=jsonp&callback=${cb}`;
     document.head.appendChild(script);
   });
+}
+
+// MusicBrainz allows ~1 req/s for anonymous clients — every MB call goes
+// through one queue that spaces requests (fromTidal, findLinksByIsrc).
+const MB_GAP_MS = 1100;
+let mbChain = Promise.resolve();
+let mbLast = 0;
+function mbJson(pathAndQuery) {
+  const run = mbChain.then(async () => {
+    const wait = mbLast + MB_GAP_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    mbLast = Date.now();
+    return getJson(`https://musicbrainz.org/ws/2/${pathAndQuery}`);
+  });
+  mbChain = run.then(() => {}, () => {});
+  return run;
 }
 
 function normalize(s) {
@@ -149,16 +171,12 @@ async function fromTidal(parsed) {
   ];
   for (const resource of candidates) {
     try {
-      const data = await getJson(
-        `https://musicbrainz.org/ws/2/url/?resource=${encodeURIComponent(resource)}&inc=recording-rels&fmt=json`
-      );
+      const data = await mbJson(`url/?resource=${encodeURIComponent(resource)}&inc=recording-rels&fmt=json`);
       const rec = (data.relations || []).map((rel) => rel.recording).find(Boolean);
       if (!rec) continue;
       let artist = '';
       try {
-        const full = await getJson(
-          `https://musicbrainz.org/ws/2/recording/${rec.id}?inc=artist-credits&fmt=json`
-        );
+        const full = await mbJson(`recording/${rec.id}?inc=artist-credits&fmt=json`);
         artist = (full['artist-credit'] || []).map((c) => c.name).join(', ');
       } catch { /* keep title-only result */ }
       return meta({ title: rec.title || '', artist });
@@ -273,12 +291,12 @@ export async function fetchDeezerIsrc(trackId) {
 // ISRC → MusicBrainz recording URL relations → exact links on other
 // platforms (notably Spotify, which has no keyless search). Community
 // coverage: good for known tracks, absent for fresh releases — callers
-// must treat this as best effort.
+// must treat this as best effort. Measured 2026-08-20: neither the MB
+// recording search nor alternate Deezer ISRCs add any hits beyond this
+// path (the rels simply don't exist in MB) — don't rebuild that idea.
 export async function findLinksByIsrc(isrc) {
   if (!isrc) return {};
-  const data = await getJson(
-    `https://musicbrainz.org/ws/2/isrc/${encodeURIComponent(isrc)}?fmt=json&inc=url-rels`
-  );
+  const data = await mbJson(`isrc/${encodeURIComponent(isrc)}?fmt=json&inc=url-rels`);
   const urls = (data.recordings || [])
     .flatMap((rec) => (rec.relations || []).map((rel) => rel.url?.resource))
     .filter(Boolean);

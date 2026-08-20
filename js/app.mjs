@@ -2,10 +2,10 @@
 // UI orchestration: paste → parse → fetch metadata → render cards.
 
 import { parseInput } from './parsers.mjs';
-import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
+import { regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
 import { fetchMetadata, findExactLinks, fetchDeezerIsrc, findLinksByIsrc } from './adapters.mjs';
+import { cardModels, cardSignature } from './cards.mjs';
 import { iconSvg } from './icons.mjs';
-import { embedFor, appLinkFor } from './embeds.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -31,6 +31,7 @@ const state = {
   sourceKeys: [],   // platform keys covered by the pasted link itself
   isrc: '',         // from Deezer — unlocks the MusicBrainz link lookup
   isrcChecked: '',  // last ISRC already sent to MusicBrainz (1 req/s budget)
+  isrcFrom: '',     // Deezer track id whose ISRC fetch already started
   generation: 0,    // invalidates in-flight fetches when input changes
 };
 
@@ -48,52 +49,108 @@ function debounce(fn, ms) {
   };
 }
 
-function render() {
-  const query = buildQuery(el.artist.value, el.title.value);
-  const parts = {
-    artist: el.artist.value.trim(),
-    title: el.title.value.trim(),
-    kind: state.parsed?.kind || 'track',
-  };
-  el.results.hidden = !query && Object.keys(state.exact).length === 0;
-  if (el.results.hidden) return;
+// All values land in the DOM via createElement/textContent/properties —
+// never via innerHTML — so API-supplied URLs and titles cannot inject
+// markup. The only insertAdjacentHTML is our own static icon SVG.
+function buildCard(m) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.dataset.platform = m.key;
+  card.dataset.sig = cardSignature(m);
 
-  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-  el.cards.innerHTML = '';
-  for (const p of PLATFORMS) {
-    const exactUrl = state.exact[p.key];
-    const isSource = state.sourceKeys.includes(p.key);
-    const url = exactUrl || (query ? p.searchUrl(query, region, parts) : null);
-    if (!url) continue;
+  const row = document.createElement('div');
+  row.className = 'card-row';
+  row.insertAdjacentHTML('beforeend', iconSvg(m.key));
 
-    // Exact URLs (source or match) are entities our own parser understands —
-    // that's what unlocks embed previews and app links. Search URLs aren't.
-    const entity = exactUrl ? parseInput(exactUrl) : null;
-    const embed = entity ? embedFor(entity, dark) : null;
-    const app = entity ? appLinkFor(entity) : null;
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  const name = document.createElement('span');
+  name.className = 'card-name';
+  name.textContent = m.name;
+  const badge = document.createElement('span');
+  badge.className = `badge badge-${m.badge}`;
+  badge.textContent = m.badge;
+  body.append(name, badge);
+  row.appendChild(body);
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.dataset.platform = p.key;
-    const badge = isSource ? 'source' : (exactUrl ? 'match' : 'search');
-    card.innerHTML = `
-      <div class="card-row">
-        ${iconSvg(p.key)}
-        <div class="card-body">
-          <span class="card-name">${p.name}</span>
-          <span class="badge badge-${badge}">${badge}</span>
-        </div>
-        ${embed ? `<button class="btn btn-preview" type="button" aria-expanded="false"
-            data-src="${embed.src}" data-height="${embed.height || ''}" data-aspect="${embed.aspect || ''}"
-            title="Load the ${p.name} preview player (third-party content)">Preview</button>` : ''}
-        ${app ? `<a class="btn btn-app" href="${app.href}" title="${app.title}">App</a>` : ''}
-        <a class="btn btn-open" href="${url}" target="_blank" rel="noopener noreferrer">Open</a>
-        <button class="btn btn-copy" type="button" data-url="${url}" aria-label="Copy ${p.name} link">Copy</button>
-      </div>
-      <div class="embed-slot" hidden></div>
-    `;
-    el.cards.appendChild(card);
+  if (m.embed) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-preview';
+    btn.type = 'button';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.dataset.src = m.embed.src;
+    btn.dataset.height = m.embed.height || '';
+    btn.dataset.aspect = m.embed.aspect || '';
+    btn.title = `Load the ${m.name} preview player (third-party content)`;
+    btn.textContent = 'Preview';
+    row.appendChild(btn);
   }
+  if (m.app) {
+    const app = document.createElement('a');
+    app.className = 'btn btn-app';
+    app.href = m.app.href;
+    app.title = m.app.title;
+    app.textContent = 'App';
+    row.appendChild(app);
+  }
+
+  const open = document.createElement('a');
+  open.className = 'btn btn-open';
+  open.href = m.url;
+  open.target = '_blank';
+  open.rel = 'noopener noreferrer';
+  open.textContent = 'Open';
+  row.appendChild(open);
+
+  const copy = document.createElement('button');
+  copy.className = 'btn btn-copy';
+  copy.type = 'button';
+  copy.dataset.url = m.url;
+  copy.setAttribute('aria-label', `Copy ${m.name} link`);
+  copy.textContent = 'Copy';
+  row.appendChild(copy);
+
+  const slot = document.createElement('div');
+  slot.className = 'embed-slot';
+  slot.hidden = true;
+  card.append(row, slot);
+  return card;
+}
+
+// Differential render: a card whose signature is unchanged keeps its DOM,
+// so an open preview iframe survives typing in the artist/title fields.
+function syncCards(models) {
+  const wanted = new Set(models.map((m) => m.key));
+  for (const child of [...el.cards.children]) {
+    if (!wanted.has(child.dataset.platform)) child.remove();
+  }
+  let anchor = null; // last correctly placed card
+  for (const m of models) {
+    let card = [...el.cards.children].find((c) => c.dataset.platform === m.key);
+    if (!card || card.dataset.sig !== cardSignature(m)) {
+      const fresh = buildCard(m);
+      if (card) card.replaceWith(fresh);
+      card = fresh;
+    }
+    const ref = anchor ? anchor.nextElementSibling : el.cards.firstElementChild;
+    if (card !== ref) el.cards.insertBefore(card, ref);
+    anchor = card;
+  }
+}
+
+function render() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const models = cardModels(
+    { exact: state.exact, sourceKeys: state.sourceKeys, kind: state.parsed?.kind },
+    { artist: el.artist.value, title: el.title.value },
+    region, dark
+  );
+  el.results.hidden = models.length === 0;
+  if (el.results.hidden) {
+    el.cards.replaceChildren();
+    return;
+  }
+  syncCards(models);
 }
 
 // Click-to-load: the iframe (and its third-party requests) only exists
@@ -101,7 +158,7 @@ function render() {
 function togglePreview(btn) {
   const slot = btn.closest('.card').querySelector('.embed-slot');
   const open = !slot.hidden;
-  slot.innerHTML = '';
+  slot.replaceChildren();
   slot.hidden = open;
   btn.setAttribute('aria-expanded', String(!open));
   if (open) return;
@@ -178,7 +235,8 @@ const enrich = debounce(async () => {
     for (const key of ['deezer', 'appleMusic']) {
       if (found[key] && !state.sourceKeys.includes(key)) state.exact[key] = found[key];
     }
-    if (!el.artist.value.trim() && el.title.value.trim()) {
+    if (!el.artist.value.trim() && el.title.value.trim()
+        && (el.status.hidden || el.status.dataset.tone !== 'warn')) {
       setStatus('Artist unknown — add it above for better matches.', 'info');
     }
     render();
@@ -189,12 +247,18 @@ const enrich = debounce(async () => {
 // Second best-effort stage: ISRC → MusicBrainz URL relations. This is
 // the only keyless path to an exact Spotify link (Spotify has no keyless
 // search); coverage is community-driven, so failures are silent.
+// Measured 2026-08-20 (Issue #1): MB recording *search* and alternate
+// Deezer ISRCs both add zero hits over this path — the gap is missing
+// Spotify URL relations in MB itself, not the lookup route.
 async function enrichViaIsrc(gen) {
   try {
     let isrc = state.isrc;
-    if (!isrc && state.exact.deezer) {
+    // Derive the ISRC from a Deezer *match* only — after a manual edit the
+    // pasted source track no longer describes what the fields say.
+    if (!isrc && state.exact.deezer && !state.sourceKeys.includes('deezer')) {
       const dz = parseInput(state.exact.deezer);
-      if (dz.ok && dz.platform === 'deezer' && dz.kind === 'track') {
+      if (dz.ok && dz.platform === 'deezer' && dz.kind === 'track' && state.isrcFrom !== dz.id) {
+        state.isrcFrom = dz.id;
         isrc = await fetchDeezerIsrc(dz.id);
         if (gen !== state.generation) return;
         state.isrc = isrc;
@@ -221,17 +285,35 @@ function resetTrack() {
   state.sourceKeys = [];
   state.isrc = '';
   state.isrcChecked = '';
+  state.isrcFrom = '';
   el.artist.value = '';
   el.title.value = '';
   el.thumb.hidden = true;
   el.thumb.removeAttribute('src');
   el.track.hidden = true;
   el.results.hidden = true;
-  el.cards.innerHTML = '';
+  el.cards.replaceChildren();
 }
+
+// A manual artist/title edit means every found match may now be wrong:
+// invalidate in-flight enrichment and drop everything except the source
+// link itself, then let enrich() re-derive matches for the new words.
+function invalidateMatches() {
+  state.generation++;
+  state.exact = {};
+  if (state.parsed) for (const key of state.sourceKeys) state.exact[key] = state.parsed.url;
+  state.isrc = '';
+  state.isrcChecked = '';
+  state.isrcFrom = '';
+  lastHandled = null; // re-pasting the same link must reset the edits
+}
+
+let lastHandled = null; // dedupes the paste-event + input-event double fire
 
 async function handleInput() {
   const raw = el.input.value;
+  if (raw === lastHandled) return;
+  lastHandled = raw;
   state.generation++;
   const gen = state.generation;
   resetTrack();
@@ -280,10 +362,13 @@ async function handleInput() {
 }
 
 el.input.addEventListener('input', debounce(handleInput, 250));
+// Paste still resolves instantly; the trailing input event is deduped by
+// lastHandled instead of running the whole pipeline a second time.
 el.input.addEventListener('paste', () => setTimeout(handleInput, 0));
 
 for (const field of [el.artist, el.title]) {
   field.addEventListener('input', () => {
+    invalidateMatches();
     render();
     enrich();
   });
