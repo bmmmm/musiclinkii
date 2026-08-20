@@ -52,6 +52,26 @@ test('exact links render cards even without any query', () => {
   assert.equal(models[0].key, 'spotify');
 });
 
+test('a known ISRC turns only the spotify search into an isrc: search', () => {
+  const models = cardModels(
+    { exact: {}, sourceKeys: [], kind: 'track', isrc: 'DE1TX2600017' },
+    { artist: 'Mine', title: 'Ohne dich' }, DE, false
+  );
+  const sp = byKey(models, 'spotify');
+  assert.match(sp.url, /isrc%3ADE1TX2600017/);
+  assert.equal(sp.viaIsrc, true);
+  assert.equal(sp.badge, 'search');
+  assert.equal(byKey(models, 'deezer').viaIsrc, false);
+  assert.doesNotMatch(byKey(models, 'deezer').url, /isrc/i);
+  // An exact spotify link (MusicBrainz hit) still wins over the isrc search.
+  const withExact = cardModels(
+    { exact: { spotify: 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i' }, sourceKeys: [], kind: 'track', isrc: 'DE1TX2600017' },
+    { artist: 'Mine', title: 'Ohne dich' }, DE, false
+  );
+  assert.equal(byKey(withExact, 'spotify').badge, 'match');
+  assert.equal(byKey(withExact, 'spotify').viaIsrc, false);
+});
+
 test('models follow PLATFORMS order', () => {
   const models = cardModels(
     { exact: { qobuz: 'https://open.qobuz.com/track/17985121' }, sourceKeys: ['qobuz'], kind: 'track' },

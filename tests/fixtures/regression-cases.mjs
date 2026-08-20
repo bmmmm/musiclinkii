@@ -13,12 +13,12 @@ export const REGRESSION_CASES = [
   {
     input: 'https://www.youtube.com/watch?v=_6972XBM88E',
     parse: { platform: 'youtube', kind: 'track', id: '_6972XBM88E' },
-    live: 'Mine – Ohne dich (fresh 2026 release). ISRC DE1TX2600017 not in MB (404, 2026-08-20) → Spotify stays a field-filter search, honestly no match badge.',
+    live: 'Mine – Ohne dich (fresh 2026 release). ISRC DE1TX2600017 not in MB (404, 2026-08-20) → no match badge, but the Spotify isrc: search link lands on exactly the right track (verified logged-out 2026-08-20).',
   },
   {
     input: 'https://youtu.be/sevZEOUXpw4',
     parse: { platform: 'youtube', kind: 'track', id: 'sevZEOUXpw4' },
-    live: 'Dilated Peoples – Worst Comes to Worst. MB knows ISRC USCA20101256 but its recording has zero url-rels (2026-08-20) → search link; multi-word artist must stay quoted in the Spotify filter.',
+    live: 'Dilated Peoples – Worst Comes to Worst. MB knows ISRC USCA20101256 but its recording has zero url-rels (2026-08-20) → the Spotify isrc: search link lands the track (verified logged-out); multi-word artist must stay quoted in the non-ISRC filter fallback.',
   },
   {
     input: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',

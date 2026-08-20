@@ -7,9 +7,14 @@ import { parseInput } from './parsers.mjs';
 import { embedFor, appLinkFor } from './embeds.mjs';
 
 // → [{ key, name, badge, url, embed, app }] in PLATFORMS order.
-export function cardModels({ exact, sourceKeys, kind }, { artist, title }, region, dark) {
+export function cardModels({ exact, sourceKeys, kind, isrc }, { artist, title }, region, dark) {
   const query = buildQuery(artist, title);
-  const parts = { artist: (artist || '').trim(), title: (title || '').trim(), kind: kind || 'track' };
+  const parts = {
+    artist: (artist || '').trim(),
+    title: (title || '').trim(),
+    kind: kind || 'track',
+    isrc: isrc || '',
+  };
   const models = [];
   for (const p of PLATFORMS) {
     const exactUrl = exact[p.key];
@@ -23,6 +28,8 @@ export function cardModels({ exact, sourceKeys, kind }, { artist, title }, regio
       name: p.name,
       badge: sourceKeys.includes(p.key) ? 'source' : (exactUrl ? 'match' : 'search'),
       url,
+      // ISRC-based searches land on exactly the right track — worth a hint.
+      viaIsrc: !exactUrl && url.includes('isrc%3A'),
       embed: entity ? embedFor(entity, dark) : null,
       app: entity ? appLinkFor(entity) : null,
     });

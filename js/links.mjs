@@ -43,6 +43,13 @@ export const PLATFORMS = [
     // Documented field filters, work URL-encoded in the /search/ path.
     searchUrl: (q, r, parts) => {
       const kind = kindOf(parts);
+      // ISRC beats everything: Spotify indexes its own catalog's ISRCs,
+      // so this search lands on exactly the right track — even for fresh
+      // releases MusicBrainz doesn't know. All three MB-miss regression
+      // cases verified logged-out 2026-08-20.
+      if (parts?.isrc && kind === 'track') {
+        return `https://open.spotify.com/search/${enc(`isrc:${parts.isrc}`)}`;
+      }
       if (parts?.artist && parts?.title) {
         const field = kind === 'album' ? 'album' : 'track';
         return `https://open.spotify.com/search/${enc(`artist:"${stripQuotes(parts.artist)}" ${field}:"${stripQuotes(parts.title)}"`)}`;

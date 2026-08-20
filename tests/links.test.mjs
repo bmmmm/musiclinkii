@@ -26,6 +26,19 @@ test('search URL templates match the live-verified formats', () => {
   assert.equal(searchUrl('qobuz', q), 'https://www.qobuz.com/de-de/search/tracks/daft%20punk%20one%20more%20time');
 });
 
+test('spotify search prefers the ISRC filter when an ISRC is known', () => {
+  const p = PLATFORMS.find((x) => x.key === 'spotify');
+  assert.equal(
+    p.searchUrl('Mine Ohne dich', DE, { artist: 'Mine', title: 'Ohne dich', kind: 'track', isrc: 'DE1TX2600017' }),
+    'https://open.spotify.com/search/isrc%3ADE1TX2600017'
+  );
+  // ISRCs identify recordings, not albums/artists — those kinds ignore it.
+  assert.equal(
+    p.searchUrl('x', DE, { artist: 'Mine', title: 'Baum', kind: 'album', isrc: 'DE1TX2600017' }),
+    `https://open.spotify.com/search/${encodeURIComponent('artist:"Mine" album:"Baum"')}`
+  );
+});
+
 test('spotify search uses field filters when artist and title are known', () => {
   const p = PLATFORMS.find((x) => x.key === 'spotify');
   // Multi-word artists must be quoted or only the first word binds to

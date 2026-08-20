@@ -34,7 +34,7 @@ use it.
 
 | Platform | Parse input | Metadata | Exact link out | Search link out | Preview embed | App link |
 |---|---|---|---|---|---|---|
-| Spotify | ✓ | title (oEmbed) | best effort (ISRC → MusicBrainz) | ✓ | ✓ | ✓ `spotify:` |
+| Spotify | ✓ | title (oEmbed) | best effort (ISRC → MusicBrainz) | ✓ (ISRC-precise where known) | ✓ | ✓ `spotify:` |
 | Apple Music | ✓ | ✓ (iTunes) | ✓ (iTunes match) | ✓ | — (embed player broken upstream) | — |
 | YouTube / YT Music | ✓ | ✓ (oEmbed) | same video | ✓ | ✓ (nocookie) | — |
 | Deezer | ✓ | ✓ (JSONP) | ✓ (Deezer search) | ✓ | ✓ | ✓ `deezer://` |

@@ -70,6 +70,7 @@ function buildCard(m) {
   const badge = document.createElement('span');
   badge.className = `badge badge-${m.badge}`;
   badge.textContent = m.badge;
+  if (m.viaIsrc) badge.title = 'Search by ISRC — usually lands on exactly the right track';
   body.append(name, badge);
   row.appendChild(body);
 
@@ -141,7 +142,7 @@ function syncCards(models) {
 function render() {
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   const models = cardModels(
-    { exact: state.exact, sourceKeys: state.sourceKeys, kind: state.parsed?.kind },
+    { exact: state.exact, sourceKeys: state.sourceKeys, kind: state.parsed?.kind, isrc: state.isrc },
     { artist: el.artist.value, title: el.title.value },
     region, dark
   );
@@ -262,6 +263,9 @@ async function enrichViaIsrc(gen) {
         isrc = await fetchDeezerIsrc(dz.id);
         if (gen !== state.generation) return;
         state.isrc = isrc;
+        // A fresh ISRC upgrades the Spotify card to an isrc: search — show
+        // that BEFORE the MusicBrainz round-trip, which may 404 and throw.
+        if (isrc) render();
       }
     }
     if (!isrc || state.isrcChecked === isrc) return;

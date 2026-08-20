@@ -29,6 +29,14 @@ in MB at all (404) or point to recordings without url-rels. The coverage
 gap is missing Spotify URL relations in MusicBrainz itself, not the
 lookup route. All MB calls share one throttle queue (`mbJson`, ~1.1 s
 spacing) to respect the 1 req/s budget.
+
+The honest keyless fallback where MB has nothing: Spotify's own `isrc:`
+**search filter** (see the search table below) — a search page, not a
+track permalink, but it lands on exactly the right track. A keyless
+Spotify search *API* still does not exist: `/v1/search` needs OAuth, and
+the anonymous web-player token (`open.spotify.com/get_access_token`) was
+locked down with a TOTP scheme in 2025 (breaks repeatedly, see
+librespot#1475) and never sent CORS headers for foreign origins anyway.
 | `soundcloud.com/oembed?url=` | SoundCloud track → "Title by Artist" | none | untested, wrapped in try/catch | — | `js/adapters.mjs` `fromSoundcloud` | [SC oEmbed docs](https://developers.soundcloud.com/docs/oembed) |
 
 No keyless metadata path exists (verified, not an oversight): **Tidal**
@@ -41,7 +49,7 @@ CORS-open) — do not rebuild on it.
 
 | Platform | Scheme | Structure used |
 |---|---|---|
-| Spotify | `open.spotify.com/search/{q}` | field filters `artist:X track:"Y"` / `album:"Y"` in the path |
+| Spotify | `open.spotify.com/search/{q}` | **`isrc:{ISRC}` when an ISRC is known** (tracks only) — Spotify indexes its own ISRCs, so this lands the exact track even where MusicBrainz has nothing; all three MB-miss regression cases verified logged-out 2026-08-20. Else field filters `artist:X track:"Y"` / `album:"Y"` in the path |
 | Deezer | `deezer.com/search/{q}` | field filters `artist:"X" track:"Y"` / `album:"Y"` (web only!) |
 | TIDAL | `tidal.com/search/{tracks\|albums\|artists}?q=` | typed route |
 | SoundCloud | `soundcloud.com/search/{sounds\|albums\|people}?q=` | typed route |
