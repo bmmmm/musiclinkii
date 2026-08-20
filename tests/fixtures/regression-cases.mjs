@@ -8,7 +8,7 @@ export const REGRESSION_CASES = [
   {
     input: 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i',
     parse: { platform: 'spotify', kind: 'track', id: '0Jcij1eWd5bDMU5iPbxe2i' },
-    live: '"Kitchen" (Le Crime). Spotify oEmbed has no artist field — the title-only two-catalog confirm (Deezer+iTunes agree) fills the artist. ISRC FR8FB2520070 not in MB (404, 2026-08-20).',
+    live: '"Kitchen" (Le Crime, JKSN). Spotify oEmbed has no artist field — the title-only two-catalog confirm (Deezer+iTunes agree) fills the artist. ISRC FR8FB2520070 not in MB (404) but the Spotify isrc: search lands the track (verified logged-out 2026-08-20).',
   },
   {
     input: 'https://www.youtube.com/watch?v=_6972XBM88E',
