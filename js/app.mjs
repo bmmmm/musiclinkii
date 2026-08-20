@@ -25,6 +25,7 @@ const el = {
   copyMeta: $('#copy-meta'),
   share: $('#share'),
   nextLink: $('#next-link'),
+  spinner: $('#busy'),
 };
 
 const region = regionFromLocale(navigator.language);
@@ -51,6 +52,14 @@ function setStatus(text, tone = 'info') {
   el.status.textContent = text || '';
   el.status.dataset.tone = tone;
   el.status.hidden = !text;
+}
+
+// Activity spinner in the input field: a counter, not a flag — metadata
+// fetch and enrich rounds overlap, and the spinner must outlive all of them.
+let busyCount = 0;
+function setBusy(on) {
+  busyCount = Math.max(0, busyCount + (on ? 1 : -1));
+  el.spinner.hidden = busyCount === 0;
 }
 
 // Title-only lookups on an ambiguous title ("Cooked") can't know which
@@ -84,6 +93,9 @@ function showArtistChips() {
       state.artistChips.picked = name;
       el.artist.value = name;
       el.artist.dispatchEvent(new Event('input', { bubbles: true }));
+      // A chip click is a deliberate pick — commit it right away (typing
+      // in the field defers the web lookups until Enter/blur).
+      el.artist.dispatchEvent(new Event('change', { bubbles: true }));
     });
     el.status.appendChild(chip);
   });
@@ -109,6 +121,28 @@ function debounce(fn, ms) {
   return (...args) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// Debounce whose wait already counts as busy: the spinner turns on with
+// the first call ("preparing requests") and stays on through the run —
+// the run takes its own busy hold before the wait hold is released, so
+// back-to-back rounds never flicker.
+function debounceBusy(fn, ms) {
+  let timer;
+  let scheduled = false;
+  return (...args) => {
+    clearTimeout(timer);
+    if (!scheduled) {
+      scheduled = true;
+      setBusy(true);
+    }
+    timer = setTimeout(async () => {
+      scheduled = false;
+      setBusy(true);
+      setBusy(false);
+      try { await fn(...args); } finally { setBusy(false); }
+    }, ms);
   };
 }
 
@@ -286,7 +320,7 @@ el.share.addEventListener('click', async () => {
   copyText(url, el.share);
 });
 
-const enrich = debounce(async () => {
+const enrich = debounceBusy(async () => {
   const gen = state.generation;
   const artist = el.artist.value.trim();
   const title = el.title.value.trim();
@@ -439,11 +473,24 @@ function invalidateMatches() {
 }
 
 let lastHandled = null; // dedupes the paste-event + input-event double fire
+let deferredEnrich = false; // free text typed but not yet committed
 
-async function handleInput() {
+// `committed` separates "still typing" from a deliberate submit (Enter,
+// blur, paste, share hash). Only free text cares: half-typed words must
+// not burn API budget, so their web lookups wait for the commit — the
+// pure search links still update live.
+async function handleInput(committed = true) {
   const raw = el.input.value;
-  if (raw === lastHandled) return;
+  if (raw === lastHandled) {
+    if (committed && deferredEnrich) {
+      deferredEnrich = false;
+      setStatus('No link detected — building search links from the text.', 'info');
+      enrich();
+    }
+    return;
+  }
   lastHandled = raw;
+  deferredEnrich = false;
   state.generation++;
   const gen = state.generation;
   resetTrack();
@@ -468,9 +515,14 @@ async function handleInput() {
     el.artist.value = parts.artist;
     el.title.value = parts.title;
     el.track.hidden = false;
-    setStatus('No link detected — building search links from the text.', 'info');
     render();
-    enrich();
+    if (committed) {
+      setStatus('No link detected — building search links from the text.', 'info');
+      enrich();
+    } else {
+      deferredEnrich = true;
+      setStatus('No link detected — building search links from the text. Press Enter to look up exact matches.', 'info');
+    }
     return;
   }
 
@@ -489,6 +541,7 @@ async function handleInput() {
   el.track.hidden = false;
   setStatus('Looking up track info…', 'info');
 
+  setBusy(true);
   try {
     const meta = await fetchMetadata(parsed);
     if (gen !== state.generation) return;
@@ -506,6 +559,8 @@ async function handleInput() {
   } catch {
     if (gen !== state.generation) return;
     setStatus('Couldn’t fetch track info — enter artist and title to build the links.', 'warn');
+  } finally {
+    setBusy(false);
   }
 
   render();
@@ -520,17 +575,23 @@ el.nextLink.addEventListener('click', () => {
   el.input.focus();
 });
 
-el.input.addEventListener('input', debounce(handleInput, 250));
+el.input.addEventListener('input', debounce(() => handleInput(false), 250));
 // Paste still resolves instantly; the trailing input event is deduped by
 // lastHandled instead of running the whole pipeline a second time.
 el.input.addEventListener('paste', () => setTimeout(handleInput, 0));
+el.input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') handleInput(); });
+el.input.addEventListener('change', () => handleInput());
 
 for (const field of [el.artist, el.title]) {
+  // Typing only rebuilds the pure search links; the web lookups wait for
+  // the commit (Enter or leaving the field) — the double fire of Enter +
+  // change collapses in enrich's debounce.
   field.addEventListener('input', () => {
     invalidateMatches();
     render();
-    enrich();
   });
+  field.addEventListener('change', () => enrich());
+  field.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') enrich(); });
 }
 
 // Arriving via a share link (#l=…): populate and resolve immediately.

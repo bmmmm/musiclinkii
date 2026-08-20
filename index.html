@@ -17,8 +17,11 @@
 
   <main>
     <label class="visually-hidden" for="link-input">Music link or search text</label>
-    <input id="link-input" type="text" inputmode="url" autocomplete="off" spellcheck="false" autofocus
-           placeholder="Paste a music link — or type “Artist - Title”">
+    <div class="input-wrap">
+      <input id="link-input" type="text" inputmode="url" autocomplete="off" spellcheck="false" autofocus
+             placeholder="Paste a music link — or type “Artist - Title”">
+      <span id="busy" class="spinner" hidden aria-hidden="true"></span>
+    </div>
     <p id="status" hidden></p>
 
     <section id="track" hidden aria-label="Track details">
@@ -81,15 +84,15 @@
   <script type="importmap">
   {
     "imports": {
-      "./js/parsers.mjs": "./js/parsers.mjs?v=20260820d",
-      "./js/links.mjs": "./js/links.mjs?v=20260820d",
-      "./js/adapters.mjs": "./js/adapters.mjs?v=20260820d",
-      "./js/cards.mjs": "./js/cards.mjs?v=20260820d",
-      "./js/icons.mjs": "./js/icons.mjs?v=20260820d",
-      "./js/embeds.mjs": "./js/embeds.mjs?v=20260820d"
+      "./js/parsers.mjs": "./js/parsers.mjs?v=20260821a",
+      "./js/links.mjs": "./js/links.mjs?v=20260821a",
+      "./js/adapters.mjs": "./js/adapters.mjs?v=20260821a",
+      "./js/cards.mjs": "./js/cards.mjs?v=20260821a",
+      "./js/icons.mjs": "./js/icons.mjs?v=20260821a",
+      "./js/embeds.mjs": "./js/embeds.mjs?v=20260821a"
     }
   }
   </script>
-  <script type="module" src="js/app.mjs?v=20260820d"></script>
+  <script type="module" src="js/app.mjs?v=20260821a"></script>
 </body>
 </html>
