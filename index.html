@@ -20,8 +20,15 @@
     <div class="input-wrap">
       <input id="link-input" type="text" inputmode="url" autocomplete="off" spellcheck="false" autofocus
              placeholder="Paste a music link — or type “Artist - Title”">
+      <button id="go" class="input-btn" type="button" title="Search now" aria-label="Search now">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path>
+        </svg>
+      </button>
       <span id="busy" class="spinner" hidden aria-hidden="true"></span>
     </div>
+    <button id="open-search" class="opener" type="button">▸ or search by artist / title / album</button>
     <p id="status" hidden></p>
 
     <section id="track" hidden aria-label="Track details">
@@ -29,19 +36,32 @@
       <div class="track-fields">
         <label for="artist-input">Artist</label>
         <input id="artist-input" type="text" autocomplete="off" placeholder="Artist">
-        <label for="title-input">Title</label>
+        <label for="title-input" id="title-label">Title</label>
         <input id="title-input" type="text" autocomplete="off" placeholder="Title">
       </div>
-      <button id="copy-meta" class="btn" type="button"
-              title="Copy “Artist - Title” as text">Copy</button>
+      <div class="track-actions">
+        <div id="kind-toggle" role="group" aria-label="Search for">
+          <button type="button" class="kind-btn" data-kind="track" aria-pressed="true">Track</button>
+          <button type="button" class="kind-btn" data-kind="album" aria-pressed="false">Album</button>
+        </div>
+        <button id="form-search" class="btn btn-go" type="button">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+               stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path>
+          </svg>
+          Search
+        </button>
+        <button id="copy-meta" class="btn" type="button"
+                title="Copy “Artist - Title” as text">Copy</button>
+      </div>
     </section>
 
     <section id="results" hidden aria-label="Platform links">
       <div class="results-head">
         <h2>Listen on</h2>
         <div class="results-actions">
-          <button id="next-link" class="btn btn-ghost" type="button"
-                  title="Clear everything and start over with the next link">Next link</button>
+          <button id="next-link" class="btn btn-next" type="button"
+                  title="Clear everything and start the next search">Next search</button>
           <button id="share" class="btn" type="button"
                   title="Share this page with the pasted link included">Share</button>
           <button id="copy-all" class="btn" type="button">Copy all</button>
@@ -62,8 +82,9 @@
         track or album metadata is fetched from keyless public endpoints (iTunes, Deezer,
         YouTube and Spotify oEmbed, MusicBrainz), and links for the other platforms are
         built from each service’s own URL scheme. Exact matches are marked; everything
-        else is an honest search link. No link at hand? Typing “Artist - Title” builds
-        the same search links from text. No analytics, no cookies, no tracking.
+        else is an honest search link. No link at hand? Type “Artist - Title” — or
+        open the artist / title / album form — and hit search. No analytics, no
+        cookies, no tracking.
       </p>
     </section>
   </main>
@@ -84,15 +105,15 @@
   <script type="importmap">
   {
     "imports": {
-      "./js/parsers.mjs": "./js/parsers.mjs?v=20260821a",
-      "./js/links.mjs": "./js/links.mjs?v=20260821a",
-      "./js/adapters.mjs": "./js/adapters.mjs?v=20260821a",
-      "./js/cards.mjs": "./js/cards.mjs?v=20260821a",
-      "./js/icons.mjs": "./js/icons.mjs?v=20260821a",
-      "./js/embeds.mjs": "./js/embeds.mjs?v=20260821a"
+      "./js/parsers.mjs": "./js/parsers.mjs?v=20260821b",
+      "./js/links.mjs": "./js/links.mjs?v=20260821b",
+      "./js/adapters.mjs": "./js/adapters.mjs?v=20260821b",
+      "./js/cards.mjs": "./js/cards.mjs?v=20260821b",
+      "./js/icons.mjs": "./js/icons.mjs?v=20260821b",
+      "./js/embeds.mjs": "./js/embeds.mjs?v=20260821b"
     }
   }
   </script>
-  <script type="module" src="js/app.mjs?v=20260821a"></script>
+  <script type="module" src="js/app.mjs?v=20260821b"></script>
 </body>
 </html>

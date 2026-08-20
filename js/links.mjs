@@ -151,17 +151,20 @@ export function buildQuery(artist, title) {
 }
 
 // Shareable permalink: the pasted link travels in the fragment, which
-// never reaches any server (not even GitHub Pages logs).
-export function shareHashFor(link) {
+// never reaches any server (not even GitHub Pages logs). A non-track
+// search kind (album) rides along so a shared album search stays one.
+export function shareHashFor(link, kind = '') {
   const trimmed = (link || '').trim();
-  return trimmed ? `#l=${encodeURIComponent(trimmed)}` : '';
+  if (!trimmed) return '';
+  const k = kind && kind !== 'track' ? `&k=${encodeURIComponent(kind)}` : '';
+  return `#l=${encodeURIComponent(trimmed)}${k}`;
 }
 
 export function linkFromHash(hash) {
-  const m = /^#l=(.+)$/.exec(hash || '');
+  const m = /^#l=([^&]+)(?:&k=([a-z]+))?$/.exec(hash || '');
   if (!m) return null;
   try {
-    return decodeURIComponent(m[1]);
+    return { link: decodeURIComponent(m[1]), kind: m[2] || '' };
   } catch {
     return null;
   }

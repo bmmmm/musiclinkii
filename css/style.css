@@ -72,7 +72,7 @@ h1 {
 
 #link-input {
   width: 100%;
-  padding: 1rem 1.2rem;
+  padding: 1rem 3.1rem 1rem 1.2rem;
   font-size: 1.05rem;
   font-family: inherit;
   color: var(--text);
@@ -87,6 +87,44 @@ h1 {
 #link-input:focus { border-color: var(--accent); }
 
 .input-wrap { position: relative; }
+
+/* The magnifier inside the main input — the visible commit for a search.
+   While a lookup runs it yields its spot to the spinner. */
+.input-btn {
+  position: absolute;
+  top: 50%;
+  right: 0.55rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 0.7rem;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.input-btn:hover {
+  color: #fff;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.opener {
+  margin: 0.55rem 0.2rem 0;
+  padding: 0;
+  font-size: 0.88rem;
+  font-family: inherit;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.opener:hover { color: var(--accent); }
 
 /* Global activity indicator — visible while any keyless lookup is in flight. */
 .spinner {
@@ -117,6 +155,27 @@ h1 {
 
 #status[data-tone='warn'] { color: #c07a1c; }
 
+/* Animated ellipsis while a lookup phase is running. Browsers without
+   content animation keep the static fallback dots. */
+#status[data-busy]::after {
+  display: inline-block;
+  width: 1.1em;
+  text-align: left;
+  content: '...';
+  animation: dots 1.2s steps(1, end) infinite;
+}
+
+@keyframes dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #status[data-busy]::after { animation: none; }
+}
+
 /* One-click artist suggestions inside the status line */
 .chip {
   padding: 0.14rem 0.55rem;
@@ -135,6 +194,7 @@ h1 {
 
 #track {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   align-items: center;
   margin-top: 1.4rem;
@@ -191,7 +251,59 @@ h1 {
   gap: 0.45rem;
 }
 
-#copy-meta { align-self: center; }
+.track-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  align-self: center;
+}
+
+#kind-toggle { display: flex; }
+
+.kind-btn {
+  flex: 1;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.kind-btn:first-child { border-radius: 0.55rem 0 0 0.55rem; }
+.kind-btn:last-child { border-radius: 0 0.55rem 0.55rem 0; border-left: none; }
+
+.kind-btn[aria-pressed='true'] {
+  color: var(--badge-source-fg);
+  background: var(--badge-source-bg);
+  border-color: var(--accent);
+}
+
+.btn-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  color: #fff;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border: none;
+}
+
+.btn-go:hover { filter: brightness(1.08); }
+
+/* Narrow screens: the action column moves below the fields as a row. */
+@media (max-width: 34rem) {
+  .track-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    flex-basis: 100%;
+  }
+
+  .track-actions > * { flex: 1; }
+}
 
 .results-head h2 { margin: 0; font-size: 1.1rem; }
 
@@ -295,20 +407,14 @@ h1 {
 
 .btn-open:hover { filter: brightness(1.08); }
 
-/* Deliberately recessive: the reset action must never be the button the
-   eye (or a stray click) lands on first. */
-.btn-ghost {
-  color: var(--muted);
+/* The reset action must be findable at a glance: accent outline, calm fill. */
+.btn-next {
+  color: var(--accent);
+  border-color: var(--accent);
   background: transparent;
-  border-color: transparent;
-  font-weight: 500;
 }
 
-.btn-ghost:hover {
-  color: var(--text);
-  background: var(--bg);
-  border-color: var(--border);
-}
+.btn-next:hover { background: var(--badge-source-bg); }
 
 .legend {
   margin-top: 0.9rem;

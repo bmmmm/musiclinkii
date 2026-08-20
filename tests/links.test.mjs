@@ -153,11 +153,23 @@ test('regionFromLocale storefront mapping', () => {
 
 test('share hash round-trips the pasted link', () => {
   const link = 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i?si=x';
-  assert.equal(linkFromHash(shareHashFor(link)), link);
+  assert.deepEqual(linkFromHash(shareHashFor(link)), { link, kind: '' });
   assert.equal(shareHashFor('  '), '');
   assert.equal(linkFromHash(''), null);
   assert.equal(linkFromHash('#other=1'), null);
   assert.equal(linkFromHash('#l=%E2'), null);
+});
+
+test('share hash carries a non-track search kind', () => {
+  // Track is the default — it must not clutter the hash.
+  assert.equal(shareHashFor('Daft Punk - Discovery', 'track'), '#l=Daft%20Punk%20-%20Discovery');
+  const hash = shareHashFor('Daft Punk - Discovery', 'album');
+  assert.equal(hash, '#l=Daft%20Punk%20-%20Discovery&k=album');
+  assert.deepEqual(linkFromHash(hash), { link: 'Daft Punk - Discovery', kind: 'album' });
+  // Free text containing a literal & is percent-encoded, so the &k=
+  // separator stays unambiguous.
+  const amp = shareHashFor('Simon & Garfunkel - America', 'album');
+  assert.deepEqual(linkFromHash(amp), { link: 'Simon & Garfunkel - America', kind: 'album' });
 });
 
 test('buildQuery joins and trims', () => {

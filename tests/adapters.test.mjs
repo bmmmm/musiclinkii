@@ -52,27 +52,29 @@ test('parseFreeText splits typed text into artist/title', () => {
 });
 
 test('deezerCandidates normalizes tracks and albums, tolerates errors', () => {
-  const track = { data: [{ id: 1038058, title: 'Miami', artist: { name: 'Will Smith' }, link: 'https://www.deezer.com/track/1038058' }] };
+  // Track rows carry the cover on the nested album object.
+  const track = { data: [{ id: 1038058, title: 'Miami', artist: { name: 'Will Smith' }, link: 'https://www.deezer.com/track/1038058', album: { cover_medium: 'https://cdn.dzcdn.net/miami.jpg' } }] };
   assert.deepEqual(deezerCandidates(track, 'track'), [
-    { title: 'Miami', artist: 'Will Smith', link: 'https://www.deezer.com/track/1038058', id: '1038058' },
+    { title: 'Miami', artist: 'Will Smith', link: 'https://www.deezer.com/track/1038058', id: '1038058', thumb: 'https://cdn.dzcdn.net/miami.jpg' },
   ]);
-  // Album search rows may lack `link` — it is rebuilt from the id.
-  const album = { data: [{ id: 302127, title: 'Discovery', artist: { name: 'Daft Punk' } }] };
+  // Album search rows may lack `link` — it is rebuilt from the id — and
+  // carry the cover inline.
+  const album = { data: [{ id: 302127, title: 'Discovery', artist: { name: 'Daft Punk' }, cover_medium: 'https://cdn.dzcdn.net/discovery.jpg' }] };
   assert.deepEqual(deezerCandidates(album, 'album'), [
-    { title: 'Discovery', artist: 'Daft Punk', link: 'https://www.deezer.com/album/302127', id: '302127' },
+    { title: 'Discovery', artist: 'Daft Punk', link: 'https://www.deezer.com/album/302127', id: '302127', thumb: 'https://cdn.dzcdn.net/discovery.jpg' },
   ]);
   assert.deepEqual(deezerCandidates({ error: { code: 4 } }, 'track'), []);
   assert.deepEqual(deezerCandidates(null, 'track'), []);
 });
 
 test('itunesCandidates normalizes songs and albums, tolerates errors', () => {
-  const song = { results: [{ trackId: 5, trackName: 'Miami', artistName: 'Will Smith', trackViewUrl: 'https://music.apple.com/de/album/miami/1?i=5' }] };
+  const song = { results: [{ trackId: 5, trackName: 'Miami', artistName: 'Will Smith', trackViewUrl: 'https://music.apple.com/de/album/miami/1?i=5', artworkUrl100: 'https://is1.mzstatic.com/miami.jpg' }] };
   assert.deepEqual(itunesCandidates(song, 'track'), [
-    { title: 'Miami', artist: 'Will Smith', link: 'https://music.apple.com/de/album/miami/1?i=5', id: '5' },
+    { title: 'Miami', artist: 'Will Smith', link: 'https://music.apple.com/de/album/miami/1?i=5', id: '5', thumb: 'https://is1.mzstatic.com/miami.jpg' },
   ]);
   const album = { results: [{ collectionId: 697194953, collectionName: 'Discovery', artistName: 'Daft Punk', collectionViewUrl: 'https://music.apple.com/de/album/discovery/697194953' }] };
   assert.deepEqual(itunesCandidates(album, 'album'), [
-    { title: 'Discovery', artist: 'Daft Punk', link: 'https://music.apple.com/de/album/discovery/697194953', id: '697194953' },
+    { title: 'Discovery', artist: 'Daft Punk', link: 'https://music.apple.com/de/album/discovery/697194953', id: '697194953', thumb: '' },
   ]);
   // A song row fed through the album lens has no collection fields → dropped.
   assert.deepEqual(itunesCandidates(song, 'album'), []);

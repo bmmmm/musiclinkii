@@ -382,6 +382,8 @@ export function deezerCandidates(data, kind = 'track') {
       artist: r.artist?.name || '',
       link: r.link || (kind === 'album' && r.id ? `https://www.deezer.com/album/${r.id}` : ''),
       id: r.id != null ? String(r.id) : '',
+      // Track rows carry the cover on the album object, album rows inline.
+      thumb: r.album?.cover_medium || r.cover_medium || '',
     }))
     .filter((c) => c.title && c.link);
 }
@@ -390,8 +392,8 @@ export function itunesCandidates(data, kind = 'track') {
   const rows = Array.isArray(data?.results) ? data.results : [];
   return rows
     .map((r) => (kind === 'album'
-      ? { title: r.collectionName || '', artist: r.artistName || '', link: r.collectionViewUrl || '', id: r.collectionId != null ? String(r.collectionId) : '' }
-      : { title: r.trackName || '', artist: r.artistName || '', link: r.trackViewUrl || '', id: r.trackId != null ? String(r.trackId) : '' }))
+      ? { title: r.collectionName || '', artist: r.artistName || '', link: r.collectionViewUrl || '', id: r.collectionId != null ? String(r.collectionId) : '', thumb: r.artworkUrl100 || '' }
+      : { title: r.trackName || '', artist: r.artistName || '', link: r.trackViewUrl || '', id: r.trackId != null ? String(r.trackId) : '', thumb: r.artworkUrl100 || '' }))
     .filter((c) => c.title && c.link);
 }
 
@@ -478,6 +480,10 @@ async function resolveTitleOnly(kind, title, region) {
       artist: primary.artist,
       deezer: primary.link,
       appleMusic: iHit.link,
+      // A two-catalog agreement is trustworthy enough to upgrade the
+      // display: canonical spelling and cover art from the matched entity.
+      canonicalTitle: primary.title,
+      thumb: primary.thumb || iHit.thumb || '',
       // "Not right?" chips: the ranked alternatives minus the picked one.
       artistCandidates: artistCandidates(dCands, iCands, qTitle)
         .filter((name) => !looselyMatches(name, primary.artist)),
@@ -508,8 +514,20 @@ export async function findExactLinks({ artist, title, kind = 'track' }, region, 
   ]);
   const out = {};
   const d = dz.status === 'fulfilled' ? pickByArtist(dz.value, artist, title) : null;
-  if (d) out.deezer = d.link;
+  if (d) {
+    out.deezer = d.link;
+    out.canonicalArtist = d.artist;
+    out.canonicalTitle = d.title;
+    out.thumb = d.thumb;
+  }
   const i = it.status === 'fulfilled' && it.value ? pickByArtist(it.value, artist, title) : null;
-  if (i) out.appleMusic = i.link;
+  if (i) {
+    out.appleMusic = i.link;
+    if (!out.thumb) out.thumb = i.thumb;
+    if (!out.canonicalArtist) {
+      out.canonicalArtist = i.artist;
+      out.canonicalTitle = i.title;
+    }
+  }
   return out;
 }
