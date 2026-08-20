@@ -24,6 +24,7 @@ const el = {
   copyAll: $('#copy-all'),
   copyMeta: $('#copy-meta'),
   share: $('#share'),
+  nextLink: $('#next-link'),
 };
 
 const region = regionFromLocale(navigator.language);
@@ -292,7 +293,7 @@ const enrich = debounce(async () => {
   if (!title) return;
   try {
     const kind = currentKind();
-    const found = await findExactLinks({ artist, title, kind }, region);
+    const found = await findExactLinks({ artist, title, kind }, region, state.sourceKeys);
     if (gen !== state.generation) return;
     if (found.artist && !el.artist.value.trim()) {
       // Assigned directly, WITHOUT dispatching an input event: the field
@@ -510,6 +511,14 @@ async function handleInput() {
   render();
   enrich();
 }
+
+// "Next link": one click back to a clean slate. The empty-input path of
+// handleInput already does the full reset (state, status, share hash).
+el.nextLink.addEventListener('click', () => {
+  el.input.value = '';
+  handleInput();
+  el.input.focus();
+});
 
 el.input.addEventListener('input', debounce(handleInput, 250));
 // Paste still resolves instantly; the trailing input event is deduped by

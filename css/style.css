@@ -272,6 +272,21 @@ h1 {
 
 .btn-open:hover { filter: brightness(1.08); }
 
+/* Deliberately recessive: the reset action must never be the button the
+   eye (or a stray click) lands on first. */
+.btn-ghost {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+  font-weight: 500;
+}
+
+.btn-ghost:hover {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+}
+
 .legend {
   margin-top: 0.9rem;
   font-size: 0.8rem;

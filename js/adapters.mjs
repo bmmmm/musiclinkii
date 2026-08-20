@@ -189,19 +189,27 @@ async function fromSpotify(parsed) {
 
 async function fromTidal(parsed) {
   // Best effort: MusicBrainz keeps URL relationships for many Tidal links —
-  // recording rels for tracks, release rels for albums (album verified
-  // live 2026-08-20: tidal.com/album/1550545 → release "Discovery").
+  // recording rels for tracks, release rels for albums, artist rels for
+  // artist pages (verified live 2026-08-20: album/1550545 → "Discovery",
+  // artist/8847 → "Daft Punk"). The queried path must keep the pasted
+  // entity kind: asking for track/{id} with an artist or video id is a
+  // numeric-collision lottery that can return a foreign track's title.
   const album = parsed.kind === 'album';
-  const path = album ? 'album' : 'track';
-  const candidates = [
-    `https://tidal.com/${path}/${parsed.id}`,
-    `https://listen.tidal.com/${path}/${parsed.id}`,
-  ];
+  const artistPage = parsed.kind === 'artist';
+  const rels = artistPage ? 'artist' : album ? 'release' : 'recording';
+  // parsed.url preserves the original path kind — for videos that is /video/.
+  const path = new URL(parsed.url).pathname;
+  const candidates = [`https://tidal.com${path}`, `https://listen.tidal.com${path}`];
   for (const resource of candidates) {
     try {
       const data = await mbJson(
-        `url/?resource=${encodeURIComponent(resource)}&inc=${album ? 'release' : 'recording'}-rels&fmt=json`
+        `url/?resource=${encodeURIComponent(resource)}&inc=${rels}-rels&fmt=json`
       );
+      if (artistPage) {
+        const name = (data.relations || []).map((rel) => rel.artist?.name).find(Boolean);
+        if (!name) continue;
+        return meta({ artist: name });
+      }
       const entity = (data.relations || []).map((rel) => (album ? rel.release : rel.recording)).find(Boolean);
       if (!entity) continue;
       let artist = '';
@@ -481,7 +489,7 @@ async function resolveTitleOnly(kind, title, region) {
   };
 }
 
-export async function findExactLinks({ artist, title, kind = 'track' }, region) {
+export async function findExactLinks({ artist, title, kind = 'track' }, region, sourceKeys = []) {
   if (!title) return {};
   // Artist and playlist links have nothing to title-match — the track
   // pipeline would fabricate confident nonsense for them.
@@ -490,9 +498,13 @@ export async function findExactLinks({ artist, title, kind = 'track' }, region) 
   if (!artist) return resolveTitleOnly(kind, title, region);
 
   const query = `${artist} ${searchableTitle(title)}`.trim();
+  // An Apple-source card keeps the pasted link, so the iTunes result would
+  // be discarded — skip the request: every needless iTunes call burns the
+  // shared rate-limit budget. The Deezer search always runs: its match is
+  // what unlocks the ISRC/UPC derivation for non-Deezer sources.
   const [dz, it] = await Promise.allSettled([
     deezerSearch(kind, query),
-    itunesSearch(kind, query, region),
+    sourceKeys.includes('appleMusic') ? null : itunesSearch(kind, query, region),
   ]);
   const out = {};
   const d = dz.status === 'fulfilled' ? pickByArtist(dz.value, artist, title) : null;
