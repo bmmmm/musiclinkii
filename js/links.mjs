@@ -50,6 +50,10 @@ export const PLATFORMS = [
       if (parts?.isrc && kind === 'track') {
         return `https://open.spotify.com/search/${enc(`isrc:${parts.isrc}`)}`;
       }
+      // No upc: branch on purpose — Spotify's documented upc: filter
+      // returns ZERO results and a plain-UPC query returns noise (both
+      // measured logged-out 2026-08-20, see ENDPOINTS.md). Albums stay on
+      // the field filters; exact album links come via MusicBrainz barcode.
       if (parts?.artist && parts?.title) {
         const field = kind === 'album' ? 'album' : 'track';
         return `https://open.spotify.com/search/${enc(`artist:"${stripQuotes(parts.artist)}" ${field}:"${stripQuotes(parts.title)}"`)}`;
@@ -77,6 +81,12 @@ export const PLATFORMS = [
     searchUrl: (q, r, parts) => {
       if (parts?.isrc && kindOf(parts) === 'track') {
         return `https://music.youtube.com/search?q=${enc(parts.isrc)}`;
+      }
+      // Content-ID indexes barcodes too: a plain UPC query returns exactly
+      // the right album ("Discovery — Album — Daft Punk" verified
+      // logged-out 2026-08-20).
+      if (parts?.upc && kindOf(parts) === 'album') {
+        return `https://music.youtube.com/search?q=${enc(parts.upc)}`;
       }
       return `https://music.youtube.com/search?q=${enc(q)}`;
     },

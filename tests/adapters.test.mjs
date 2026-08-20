@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Pure adapter logic: candidate normalization, match selection, artist
+// chips, free-text splitting. Network functions stay untested here.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  cleanTitle, splitDashTitle, looselyMatches, searchableTitle, parseFreeText,
+  deezerCandidates, itunesCandidates, pickByArtist, strictTitleHits, artistCandidates,
+} from '../js/adapters.mjs';
+
+test('cleanTitle strips video noise', () => {
+  assert.equal(cleanTitle('Blinding Lights (Official Video)'), 'Blinding Lights');
+  assert.equal(cleanTitle('Song [Official Lyric Video] (4K)'), 'Song');
+  assert.equal(cleanTitle('Plain Title'), 'Plain Title');
+  assert.equal(cleanTitle('Keep (Not Noise) Brackets'), 'Keep (Not Noise) Brackets');
+});
+
+test('looselyMatches is token-based, not substring-based', () => {
+  assert.equal(looselyMatches('Kitchen', 'Kitchenware & Candybars'), false);
+  assert.equal(looselyMatches('Take On Me', 'Take On Me (1985 12" Mix) [2015 Remastered]'), true);
+  assert.equal(looselyMatches('The Weeknd', 'Weeknd'), true);
+  assert.equal(looselyMatches('a-ha', 'a‐ha'), true);
+  assert.equal(looselyMatches('Sigur Rós', 'sigur ros'), true);
+  assert.equal(looselyMatches('', 'anything'), false);
+});
+
+test('searchableTitle strips bracketed noise and quotes', () => {
+  assert.equal(searchableTitle('Take On Me (1985 12" Mix) [2015 Remastered]'), 'Take On Me');
+  assert.equal(searchableTitle('Plain Song'), 'Plain Song');
+  // A fully bracketed title must not collapse to nothing.
+  assert.equal(searchableTitle('(Untitled)'), '(Untitled)');
+});
+
+test('splitDashTitle splits artist from title', () => {
+  assert.deepEqual(splitDashTitle('The Weeknd - Blinding Lights'), { artist: 'The Weeknd', title: 'Blinding Lights' });
+  assert.deepEqual(splitDashTitle('A – B'), { artist: 'A', title: 'B' });
+  assert.equal(splitDashTitle('No separator here'), null);
+  assert.equal(splitDashTitle('Hyphen-ated word'), null);
+});
+
+test('parseFreeText splits typed text into artist/title', () => {
+  assert.deepEqual(parseFreeText('Will Smith - Miami'), { artist: 'Will Smith', title: 'Miami' });
+  assert.deepEqual(parseFreeText('A – B'), { artist: 'A', title: 'B' });
+  // Only the FIRST dash splits — the rest stays in the title.
+  assert.deepEqual(parseFreeText('A - B - Live'), { artist: 'A', title: 'B - Live' });
+  // No dash → everything is the title, artist stays editable.
+  assert.deepEqual(parseFreeText('Miami'), { artist: '', title: 'Miami' });
+  // Video noise is stripped before splitting.
+  assert.deepEqual(parseFreeText('Will Smith - Miami (Official Video)'), { artist: 'Will Smith', title: 'Miami' });
+  assert.equal(parseFreeText('   '), null);
+  assert.equal(parseFreeText(''), null);
+});
+
+test('deezerCandidates normalizes tracks and albums, tolerates errors', () => {
+  const track = { data: [{ id: 1038058, title: 'Miami', artist: { name: 'Will Smith' }, link: 'https://www.deezer.com/track/1038058' }] };
+  assert.deepEqual(deezerCandidates(track, 'track'), [
+    { title: 'Miami', artist: 'Will Smith', link: 'https://www.deezer.com/track/1038058', id: '1038058' },
+  ]);
+  // Album search rows may lack `link` — it is rebuilt from the id.
+  const album = { data: [{ id: 302127, title: 'Discovery', artist: { name: 'Daft Punk' } }] };
+  assert.deepEqual(deezerCandidates(album, 'album'), [
+    { title: 'Discovery', artist: 'Daft Punk', link: 'https://www.deezer.com/album/302127', id: '302127' },
+  ]);
+  assert.deepEqual(deezerCandidates({ error: { code: 4 } }, 'track'), []);
+  assert.deepEqual(deezerCandidates(null, 'track'), []);
+});
+
+test('itunesCandidates normalizes songs and albums, tolerates errors', () => {
+  const song = { results: [{ trackId: 5, trackName: 'Miami', artistName: 'Will Smith', trackViewUrl: 'https://music.apple.com/de/album/miami/1?i=5' }] };
+  assert.deepEqual(itunesCandidates(song, 'track'), [
+    { title: 'Miami', artist: 'Will Smith', link: 'https://music.apple.com/de/album/miami/1?i=5', id: '5' },
+  ]);
+  const album = { results: [{ collectionId: 697194953, collectionName: 'Discovery', artistName: 'Daft Punk', collectionViewUrl: 'https://music.apple.com/de/album/discovery/697194953' }] };
+  assert.deepEqual(itunesCandidates(album, 'album'), [
+    { title: 'Discovery', artist: 'Daft Punk', link: 'https://music.apple.com/de/album/discovery/697194953', id: '697194953' },
+  ]);
+  // A song row fed through the album lens has no collection fields → dropped.
+  assert.deepEqual(itunesCandidates(song, 'album'), []);
+  assert.deepEqual(itunesCandidates(undefined, 'track'), []);
+});
+
+test('pickByArtist: the known artist beats a foreign top hit', () => {
+  // The reported bug: pasted Spotify ALBUM "Discovery" (Daft Punk) ran
+  // through the track path and auto-picked Tony Ann's track instead.
+  const cands = [
+    { title: 'Discovery', artist: 'Tony Ann', link: 'https://www.deezer.com/track/2576777332', id: '2576777332' },
+    { title: 'Discovery', artist: 'Daft Punk', link: 'https://www.deezer.com/album/302127', id: '302127' },
+  ];
+  assert.equal(pickByArtist(cands, 'Daft Punk', 'Discovery')?.id, '302127');
+  // Title variants ("Deluxe Edition") still match via the loose title check.
+  const deluxe = [{ title: 'Discovery (Deluxe Edition)', artist: 'Daft Punk', link: 'x', id: '1' }];
+  assert.equal(pickByArtist(deluxe, 'Daft Punk', 'Discovery')?.id, '1');
+  assert.equal(pickByArtist(cands, 'Nobody Known', 'Discovery'), null);
+  assert.equal(pickByArtist([], 'Daft Punk', 'Discovery'), null);
+});
+
+test('strictTitleHits keeps rank order and drops near-titles', () => {
+  const cands = [
+    { title: 'Miami (feat. X)', artist: 'Odeal', link: 'a', id: '1' },
+    { title: 'MIAMI', artist: 'Tokischa', link: 'b', id: '2' },
+    { title: 'Miami', artist: 'Will Smith', link: 'c', id: '3' },
+  ];
+  // Bracketed suffixes are noise-stripped by searchableTitle, so the Odeal
+  // entry counts as strict too — but never jumps ahead of its rank.
+  assert.deepEqual(strictTitleHits(cands, 'Miami').map((c) => c.id), ['1', '2', '3']);
+  assert.deepEqual(strictTitleHits([{ title: 'Miami Nights', artist: 'Y', link: 'd', id: '4' }], 'Miami'), []);
+});
+
+test('artistCandidates: confirmed names first, Deezer-only fallback', () => {
+  // The real "Cooked" shape (2026-08-20), in the normalized form.
+  const dCands = [
+    { title: 'COOOK PARDON', artist: 'Lvbel C5', link: 'l1', id: '1' },
+    { title: 'COOKED', artist: 'The Skinner Brothers', link: 'l2', id: '2' },
+    { title: 'cooked', artist: 'ase paperchase', link: 'l3', id: '3' },
+    { title: 'Cooked', artist: 'Amélie', link: 'l4', id: '4' },
+    { title: 'Cooked', artist: 'Samurai Breaks', link: 'l5', id: '5' },
+    { title: 'Cooked', artist: 'Amélie', link: 'l6', id: '6' }, // duplicate artist
+  ];
+  const iCands = [
+    { title: 'Cooked', artist: 'amelie', link: 'i1', id: 'a' },
+    { title: 'Good Thing', artist: 'Fine Young Cannibals', link: 'i2', id: 'b' },
+    { title: 'Cooked', artist: 'Samurai Breaks', link: 'i3', id: 'c' },
+    { title: 'Overcooked', artist: 'The Skinner Brothers', link: 'i4', id: 'd' }, // different title → no confirm
+  ];
+  // Both-catalog names lead, Deezer-only names pad up to the cap.
+  assert.deepEqual(
+    artistCandidates(dCands, iCands, 'Cooked'),
+    ['Amélie', 'Samurai Breaks', 'The Skinner Brothers', 'ase paperchase']
+  );
+  // iTunes down (null) ≠ iTunes empty ([]) — both still yield chips, because
+  // a chip is a user choice, not an auto-pick. This is the "Miami" fix.
+  assert.deepEqual(
+    artistCandidates(dCands, null, 'Cooked'),
+    ['The Skinner Brothers', 'ase paperchase', 'Amélie', 'Samurai Breaks']
+  );
+  assert.deepEqual(
+    artistCandidates(dCands, [], 'Cooked'),
+    ['The Skinner Brothers', 'ase paperchase', 'Amélie', 'Samurai Breaks']
+  );
+  assert.deepEqual(artistCandidates([], iCands, 'Cooked'), []);
+  // The cap holds.
+  assert.equal(artistCandidates(dCands, iCands, 'Cooked', 2).length, 2);
+});

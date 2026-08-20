@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseInput, slugToWords } from '../js/parsers.mjs';
+import { parseInput, looksLikeLink, slugToWords } from '../js/parsers.mjs';
+import { parseFreeText } from '../js/adapters.mjs';
 import { REGRESSION_CASES } from './fixtures/regression-cases.mjs';
 
 const SPOTIFY_ID = '0Jcij1eWd5bDMU5iPbxe2i';
@@ -50,6 +51,34 @@ test('apple music URL variants', () => {
     { platform: 'appleMusic', kind: 'track', id: '1035048414' });
   expectOk('https://itunes.apple.com/us/album/x/1035047659?i=1035048414',
     { platform: 'appleMusic', kind: 'track', id: '1035048414' });
+  // MusicBrainz stores Apple URL relations id-prefixed — required for the
+  // ISRC/UPC cascades to turn them into match badges.
+  expectOk('https://itunes.apple.com/gb/album/id697194953',
+    { platform: 'appleMusic', kind: 'album', id: '697194953', url: 'https://music.apple.com/gb/album/697194953' });
+  assert.equal(parseInput('https://itunes.apple.com/gb/album/idfoo').ok, false);
+});
+
+test('looksLikeLink separates links from free text', () => {
+  for (const link of [
+    'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i',
+    'open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i',
+    'spotify:track:0Jcij1eWd5bDMU5iPbxe2i',
+    'www.deezer.com/album/302127',
+    'music.apple.com/de/album/discovery/697194953',
+    'youtu.be/dQw4w9WgXcQ',
+    'https://example.com/whatever',
+  ]) assert.equal(looksLikeLink(link), true, link);
+  for (const text of [
+    'Will Smith - Miami',
+    'Miami',
+    'N.W.A',
+    'R.E.M. - Losing My Religion',
+    'Blink-182',
+    'AC/DC - Thunderstruck',
+    'Sigur Rós - Hoppípolla',
+    '',
+    '   ',
+  ]) assert.equal(looksLikeLink(text), false, text);
 });
 
 test('youtube URL variants share one ID space', () => {
@@ -166,6 +195,12 @@ test('garbage input fails cleanly', () => {
 
 test('regression cases from real sessions parse as documented', () => {
   for (const c of REGRESSION_CASES) {
+    if (c.text) {
+      // Free-text cases never reach parseInput — they take the text path.
+      assert.equal(looksLikeLink(c.input), false, c.input);
+      assert.deepEqual(parseFreeText(c.input), c.text, c.input);
+      continue;
+    }
     const r = parseInput(c.input);
     if (c.parse) {
       assert.equal(r.ok, true, c.input);

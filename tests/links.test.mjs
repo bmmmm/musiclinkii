@@ -2,7 +2,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from '../js/links.mjs';
-import { cleanTitle, splitDashTitle, looselyMatches, searchableTitle, artistCandidates } from '../js/adapters.mjs';
 
 const DE = regionFromLocale('de-DE');
 const US = regionFromLocale('en-US');
@@ -45,25 +44,30 @@ test('youtube music search uses the plain ISRC as query when known', () => {
   );
 });
 
-test('artistCandidates: artists both catalogs list for an ambiguous title', () => {
-  // The real "Cooked" shape (2026-08-20): Deezer's top hits are unconfirmed,
-  // the true artist (amelie) appears in both catalogs.
-  const dHits = [
-    { title: 'COOOK PARDON', artist: { name: 'Lvbel C5' } },
-    { title: 'COOKED', artist: { name: 'The Skinner Brothers' } },
-    { title: 'cooked', artist: { name: 'ase paperchase' } },
-    { title: 'Cooked', artist: { name: 'Amélie' } },
-    { title: 'Cooked', artist: { name: 'Samurai Breaks' } },
-    { title: 'Cooked', artist: { name: 'Amélie' } }, // duplicate artist
-  ];
-  const iHits = [
-    { trackName: 'Cooked', artistName: 'amelie' },
-    { trackName: 'Good Thing', artistName: 'Fine Young Cannibals' },
-    { trackName: 'Cooked', artistName: 'Samurai Breaks' },
-    { trackName: 'Overcooked', artistName: 'The Skinner Brothers' }, // different title → no confirm
-  ];
-  assert.deepEqual(artistCandidates(dHits, iHits, 'Cooked'), ['Amélie', 'Samurai Breaks']);
-  assert.deepEqual(artistCandidates([], iHits, 'Cooked'), []);
+test('youtube music search uses the plain UPC as query for albums', () => {
+  const p = PLATFORMS.find((x) => x.key === 'youtubeMusic');
+  const album = { artist: 'Daft Punk', title: 'Discovery', kind: 'album', upc: '724384960650' };
+  assert.equal(p.searchUrl('Daft Punk Discovery', DE, album), 'https://music.youtube.com/search?q=724384960650');
+  // UPCs identify albums — a track never searches by UPC.
+  assert.equal(
+    p.searchUrl('Daft Punk Discovery', DE, { ...album, kind: 'track' }),
+    'https://music.youtube.com/search?q=Daft%20Punk%20Discovery'
+  );
+  // On a track with both codes the ISRC wins.
+  assert.equal(
+    p.searchUrl('x', DE, { kind: 'track', isrc: 'USCA20101085', upc: '724384960650' }),
+    'https://music.youtube.com/search?q=USCA20101085'
+  );
+});
+
+test('spotify album search never uses the UPC (measured-dead endpoint)', () => {
+  const p = PLATFORMS.find((x) => x.key === 'spotify');
+  const album = { artist: 'Daft Punk', title: 'Discovery', kind: 'album', upc: '724384960650' };
+  const url = p.searchUrl('Daft Punk Discovery', DE, album);
+  // Regression guard: the upc: filter returns zero results logged-out
+  // (2026-08-20) — albums must stay on the field filters.
+  assert.equal(url, `https://open.spotify.com/search/${encodeURIComponent('artist:"Daft Punk" album:"Discovery"')}`);
+  assert.ok(!url.includes('724384960650'));
 });
 
 test('spotify search prefers the ISRC filter when an ISRC is known', () => {
@@ -168,32 +172,5 @@ test('sourceCardKeys marks both YouTube cards for music.youtube links', () => {
   assert.deepEqual(sourceCardKeys({ platform: 'deezer', meta: {} }), ['deezer']);
 });
 
-test('cleanTitle strips video noise', () => {
-  assert.equal(cleanTitle('Blinding Lights (Official Video)'), 'Blinding Lights');
-  assert.equal(cleanTitle('Song [Official Lyric Video] (4K)'), 'Song');
-  assert.equal(cleanTitle('Plain Title'), 'Plain Title');
-  assert.equal(cleanTitle('Keep (Not Noise) Brackets'), 'Keep (Not Noise) Brackets');
-});
-
-test('looselyMatches is token-based, not substring-based', () => {
-  assert.equal(looselyMatches('Kitchen', 'Kitchenware & Candybars'), false);
-  assert.equal(looselyMatches('Take On Me', 'Take On Me (1985 12" Mix) [2015 Remastered]'), true);
-  assert.equal(looselyMatches('The Weeknd', 'Weeknd'), true);
-  assert.equal(looselyMatches('a-ha', 'a‐ha'), true);
-  assert.equal(looselyMatches('Sigur Rós', 'sigur ros'), true);
-  assert.equal(looselyMatches('', 'anything'), false);
-});
-
-test('searchableTitle strips bracketed noise and quotes', () => {
-  assert.equal(searchableTitle('Take On Me (1985 12" Mix) [2015 Remastered]'), 'Take On Me');
-  assert.equal(searchableTitle('Plain Song'), 'Plain Song');
-  // A fully bracketed title must not collapse to nothing.
-  assert.equal(searchableTitle('(Untitled)'), '(Untitled)');
-});
-
-test('splitDashTitle splits artist from title', () => {
-  assert.deepEqual(splitDashTitle('The Weeknd - Blinding Lights'), { artist: 'The Weeknd', title: 'Blinding Lights' });
-  assert.deepEqual(splitDashTitle('A – B'), { artist: 'A', title: 'B' });
-  assert.equal(splitDashTitle('No separator here'), null);
-  assert.equal(splitDashTitle('Hyphen-ated word'), null);
-});
+// cleanTitle/looselyMatches/searchableTitle/splitDashTitle/artistCandidates
+// tests moved to tests/adapters.test.mjs — this file is about URL builders.

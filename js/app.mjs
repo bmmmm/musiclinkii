@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // UI orchestration: paste → parse → fetch metadata → render cards.
 
-import { parseInput } from './parsers.mjs';
+import { parseInput, looksLikeLink } from './parsers.mjs';
 import { regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
-import { fetchMetadata, findExactLinks, fetchDeezerIsrc, findLinksByIsrc } from './adapters.mjs';
+import {
+  fetchMetadata, findExactLinks, parseFreeText,
+  fetchDeezerIsrc, findLinksByIsrc, fetchDeezerUpc, findLinksByUpc,
+} from './adapters.mjs';
 import { cardModels, cardSignature } from './cards.mjs';
 import { iconSvg } from './icons.mjs';
 
@@ -32,8 +35,16 @@ const state = {
   isrc: '',         // from Deezer — unlocks the MusicBrainz link lookup
   isrcChecked: '',  // last ISRC already sent to MusicBrainz (1 req/s budget)
   isrcFrom: '',     // Deezer track id whose ISRC fetch already started
+  upc: '',          // from Deezer album — unlocks the MusicBrainz barcode lookup
+  upcChecked: '',   // last UPC already sent to MusicBrainz
+  upcFrom: '',      // Deezer album id whose UPC fetch already started
+  artistChips: null, // { title, names, picked, itunesDown } — chips survive rounds
   generation: 0,    // invalidates in-flight fetches when input changes
 };
+
+// The entity kind of the current session — free text has no parsed link
+// and behaves like a track.
+const currentKind = () => state.parsed?.kind || 'track';
 
 function setStatus(text, tone = 'info') {
   el.status.textContent = text || '';
@@ -42,13 +53,26 @@ function setStatus(text, tone = 'info') {
 }
 
 // Title-only lookups on an ambiguous title ("Cooked") can't know which
-// artist the pasted track belongs to — offer the catalog-confirmed
-// candidates as one-click chips. Clicking runs the normal manual-edit
-// path (invalidate + re-enrich), so the full match cascade follows.
-function suggestArtists(names) {
+// artist the pasted item belongs to — offer catalog candidates as
+// one-click chips. state.artistChips is keyed by the title so a later
+// enrich round WITHOUT candidates (e.g. after the auto-artist fill) can't
+// wipe fresh chips, and a title edit invalidates them implicitly.
+// Clicking runs the normal manual-edit path (invalidate + re-enrich), so
+// the full match cascade follows.
+function showArtistChips() {
+  const chips = state.artistChips;
+  if (!chips || chips.title !== el.title.value.trim()) return false;
+  // Hide whoever is currently in the field — chips.picked only feeds the
+  // prefix wording, so a manual edit re-offers the previously picked name.
+  const current = el.artist.value.trim();
+  const names = chips.names.filter((n) => n !== current);
+  if (!names.length) return false;
   el.status.textContent = '';
   el.status.dataset.tone = 'info';
-  el.status.append('Which artist? ');
+  const prefix = chips.picked || el.artist.value.trim()
+    ? 'Not right? '
+    : (chips.itunesDown ? 'Apple Music is rate-limiting — pick the artist: ' : 'Which artist? ');
+  el.status.append(prefix);
   names.forEach((name, i) => {
     if (i) el.status.append(' ');
     const chip = document.createElement('button');
@@ -56,12 +80,27 @@ function suggestArtists(names) {
     chip.className = 'chip';
     chip.textContent = name;
     chip.addEventListener('click', () => {
+      state.artistChips.picked = name;
       el.artist.value = name;
       el.artist.dispatchEvent(new Event('input', { bubbles: true }));
     });
     el.status.appendChild(chip);
   });
   el.status.hidden = false;
+  return true;
+}
+
+// Status line after an enrich round: never clobber a warn note (Qobuz,
+// Bandcamp, SoundCloud explain themselves there), prefer chips, else be
+// honest about a missing artist — except for artist/playlist links, where
+// no artist resolution exists by design.
+function updateStatusLine(kind) {
+  if (!el.status.hidden && el.status.dataset.tone === 'warn') return;
+  if (showArtistChips()) return;
+  if (!el.artist.value.trim() && el.title.value.trim()
+      && kind !== 'artist' && kind !== 'playlist') {
+    setStatus('Artist unknown — add it above for better matches.', 'info');
+  }
 }
 
 function debounce(fn, ms) {
@@ -93,7 +132,11 @@ function buildCard(m) {
   const badge = document.createElement('span');
   badge.className = `badge badge-${m.badge}`;
   badge.textContent = m.badge;
-  if (m.viaIsrc) badge.title = 'Search by ISRC — usually lands on exactly the right track';
+  if (m.viaCode) {
+    badge.title = m.codeKind === 'upc'
+      ? 'Search by barcode (UPC) — usually lands on exactly the right album'
+      : 'Search by ISRC — usually lands on exactly the right track';
+  }
   body.append(name, badge);
   row.appendChild(body);
 
@@ -165,7 +208,7 @@ function syncCards(models) {
 function render() {
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   const models = cardModels(
-    { exact: state.exact, sourceKeys: state.sourceKeys, kind: state.parsed?.kind, isrc: state.isrc },
+    { exact: state.exact, sourceKeys: state.sourceKeys, kind: currentKind(), isrc: state.isrc, upc: state.upc },
     { artist: el.artist.value, title: el.title.value },
     region, dark
   );
@@ -248,9 +291,13 @@ const enrich = debounce(async () => {
   const title = el.title.value.trim();
   if (!title) return;
   try {
-    const found = await findExactLinks({ artist, title }, region);
+    const kind = currentKind();
+    const found = await findExactLinks({ artist, title, kind }, region);
     if (gen !== state.generation) return;
     if (found.artist && !el.artist.value.trim()) {
+      // Assigned directly, WITHOUT dispatching an input event: the field
+      // listener would run invalidateMatches() and wipe the dedupe guards
+      // (isrcFrom/upcChecked) that keep round 2 from redoing work.
       el.artist.value = found.artist;
       // The artist was found in this round — run one more round so the
       // artist-dependent lookups (iTunes exact match) can use it.
@@ -259,13 +306,22 @@ const enrich = debounce(async () => {
     for (const key of ['deezer', 'appleMusic']) {
       if (found[key] && !state.sourceKeys.includes(key)) state.exact[key] = found[key];
     }
-    if (!el.artist.value.trim() && el.title.value.trim()
-        && (el.status.hidden || el.status.dataset.tone !== 'warn')) {
-      if (found.artistCandidates?.length) suggestArtists(found.artistCandidates);
-      else setStatus('Artist unknown — add it above for better matches.', 'info');
+    // Only a round WITH candidates may overwrite the chips — round 2
+    // (artist known, no candidates returned) must leave them standing.
+    if (found.artistCandidates?.length) {
+      state.artistChips = {
+        title,
+        // Keep the auto-pick in the pool: after a correction it becomes a
+        // chip again, so a wrong correction has a one-click way back.
+        names: found.artist ? [found.artist, ...found.artistCandidates] : found.artistCandidates,
+        picked: found.artist || '',
+        itunesDown: Boolean(found.itunesDown),
+      };
     }
+    updateStatusLine(kind);
     render();
-    await enrichViaIsrc(gen);
+    if (kind === 'album') await enrichViaUpc(gen);
+    else await enrichViaIsrc(gen);
   } catch { /* search links stay — enrichment is best effort */ }
 }, 500);
 
@@ -307,6 +363,42 @@ async function enrichViaIsrc(gen) {
   } catch { /* best effort — search links stay */ }
 }
 
+// Album analog of enrichViaIsrc: Deezer album → UPC (barcode) → MusicBrainz
+// release URL relations → exact album links. Spotify's own upc: search is
+// measured dead (ENDPOINTS.md) — MB is the only keyless path to an exact
+// Spotify album link.
+async function enrichViaUpc(gen) {
+  try {
+    let upc = state.upc;
+    // Derive the UPC from a Deezer *match* only — after a manual edit the
+    // pasted source album no longer describes what the fields say.
+    if (!upc && state.exact.deezer && !state.sourceKeys.includes('deezer')) {
+      const dz = parseInput(state.exact.deezer);
+      if (dz.ok && dz.platform === 'deezer' && dz.kind === 'album' && state.upcFrom !== dz.id) {
+        state.upcFrom = dz.id;
+        upc = await fetchDeezerUpc(dz.id);
+        if (gen !== state.generation) return;
+        state.upc = upc;
+        // A fresh UPC upgrades the YT Music card to a barcode search — show
+        // that BEFORE the MusicBrainz round-trip, which may 404 and throw.
+        if (upc) render();
+      }
+    }
+    if (!upc || state.upcChecked === upc) return;
+    state.upcChecked = upc;
+    const links = await findLinksByUpc(upc);
+    if (gen !== state.generation) return;
+    let added = false;
+    for (const [key, url] of Object.entries(links)) {
+      if (!state.exact[key] && !state.sourceKeys.includes(key)) {
+        state.exact[key] = url;
+        added = true;
+      }
+    }
+    if (added) render();
+  } catch { /* best effort — search links stay */ }
+}
+
 function resetTrack() {
   state.parsed = null;
   state.exact = {};
@@ -314,6 +406,10 @@ function resetTrack() {
   state.isrc = '';
   state.isrcChecked = '';
   state.isrcFrom = '';
+  state.upc = '';
+  state.upcChecked = '';
+  state.upcFrom = '';
+  state.artistChips = null;
   el.artist.value = '';
   el.title.value = '';
   el.thumb.hidden = true;
@@ -326,6 +422,8 @@ function resetTrack() {
 // A manual artist/title edit means every found match may now be wrong:
 // invalidate in-flight enrichment and drop everything except the source
 // link itself, then let enrich() re-derive matches for the new words.
+// state.artistChips survives on purpose — the candidates describe the
+// TITLE, not the matches, and self-invalidate when the title changes.
 function invalidateMatches() {
   state.generation++;
   state.exact = {};
@@ -333,6 +431,9 @@ function invalidateMatches() {
   state.isrc = '';
   state.isrcChecked = '';
   state.isrcFrom = '';
+  state.upc = '';
+  state.upcChecked = '';
+  state.upcFrom = '';
   lastHandled = null; // re-pasting the same link must reset the edits
 }
 
@@ -349,6 +450,26 @@ async function handleInput() {
   if (!raw.trim()) {
     setStatus('');
     history.replaceState(null, '', location.pathname + location.search);
+    return;
+  }
+
+  // Non-link text ("Will Smith - Miami") is a search request, not an
+  // error: split it into the fields and run the normal enrich pipeline —
+  // no source card, no metadata fetch. The hash keeps text shareable too.
+  if (!looksLikeLink(raw)) {
+    const parts = parseFreeText(raw);
+    if (!parts) {
+      setStatus('');
+      history.replaceState(null, '', location.pathname + location.search);
+      return;
+    }
+    history.replaceState(null, '', location.pathname + location.search + shareHashFor(raw));
+    el.artist.value = parts.artist;
+    el.title.value = parts.title;
+    el.track.hidden = false;
+    setStatus('No link detected — building search links from the text.', 'info');
+    render();
+    enrich();
     return;
   }
 
@@ -378,6 +499,7 @@ async function handleInput() {
     }
     Object.assign(state.exact, meta.exact || {});
     if (meta.isrc) state.isrc = meta.isrc;
+    if (meta.upc) state.upc = meta.upc;
     for (const key of state.sourceKeys) state.exact[key] = parsed.url;
     setStatus(meta.note || '', meta.note ? 'warn' : 'info');
   } catch {

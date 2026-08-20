@@ -16,9 +16,9 @@
   </header>
 
   <main>
-    <label class="visually-hidden" for="link-input">Music link</label>
-    <input id="link-input" type="url" autocomplete="off" spellcheck="false" autofocus
-           placeholder="Paste a music link — Spotify, Apple Music, YouTube, Deezer, TIDAL …">
+    <label class="visually-hidden" for="link-input">Music link or search text</label>
+    <input id="link-input" type="text" inputmode="url" autocomplete="off" spellcheck="false" autofocus
+           placeholder="Paste a music link — or type “Artist - Title”">
     <p id="status" hidden></p>
 
     <section id="track" hidden aria-label="Track details">
@@ -46,7 +46,7 @@
       <p class="legend">
         <span class="badge badge-source">source</span> your pasted link ·
         <span class="badge badge-match">match</span> exact track found ·
-        <span class="badge badge-search">search</span> opens a search — by ISRC where known (lands on the exact track), else for “artist title”
+        <span class="badge badge-search">search</span> opens a search — by ISRC or barcode where known (lands on the exact track or album), else for “artist title”
       </p>
     </section>
 
@@ -54,10 +54,11 @@
       <h2>How it works</h2>
       <p>
         Everything runs in your browser — there is no backend. The pasted link is parsed,
-        track metadata is fetched from keyless public endpoints (iTunes, Deezer, YouTube
-        and Spotify oEmbed, MusicBrainz), and links for the other platforms are built
-        from each service’s own URL scheme. Exact matches are marked; everything else is
-        an honest search link. No analytics, no cookies, no tracking.
+        track or album metadata is fetched from keyless public endpoints (iTunes, Deezer,
+        YouTube and Spotify oEmbed, MusicBrainz), and links for the other platforms are
+        built from each service’s own URL scheme. Exact matches are marked; everything
+        else is an honest search link. No link at hand? Typing “Artist - Title” builds
+        the same search links from text. No analytics, no cookies, no tracking.
       </p>
     </section>
   </main>
@@ -78,15 +79,15 @@
   <script type="importmap">
   {
     "imports": {
-      "./js/parsers.mjs": "./js/parsers.mjs?v=20260820b",
-      "./js/links.mjs": "./js/links.mjs?v=20260820b",
-      "./js/adapters.mjs": "./js/adapters.mjs?v=20260820b",
-      "./js/cards.mjs": "./js/cards.mjs?v=20260820b",
-      "./js/icons.mjs": "./js/icons.mjs?v=20260820b",
-      "./js/embeds.mjs": "./js/embeds.mjs?v=20260820b"
+      "./js/parsers.mjs": "./js/parsers.mjs?v=20260820c",
+      "./js/links.mjs": "./js/links.mjs?v=20260820c",
+      "./js/adapters.mjs": "./js/adapters.mjs?v=20260820c",
+      "./js/cards.mjs": "./js/cards.mjs?v=20260820c",
+      "./js/icons.mjs": "./js/icons.mjs?v=20260820c",
+      "./js/embeds.mjs": "./js/embeds.mjs?v=20260820c"
     }
   }
   </script>
-  <script type="module" src="js/app.mjs?v=20260820b"></script>
+  <script type="module" src="js/app.mjs?v=20260820c"></script>
 </body>
 </html>

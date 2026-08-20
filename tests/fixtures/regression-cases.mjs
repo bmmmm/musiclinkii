@@ -61,6 +61,31 @@ export const REGRESSION_CASES = [
     live: 'song.link /s|i|y|d|t paths resolve natively even though the Odesli API is dead.',
   },
   {
+    input: 'https://open.spotify.com/album/2noRn2Aes5aoNVsU6iWThc',
+    parse: { platform: 'spotify', kind: 'album', id: '2noRn2Aes5aoNVsU6iWThc' },
+    live: '"Discovery" (Daft Punk) — reported 2026-08-20: the album ran through the TRACK pipeline and auto-picked "Tony Ann" with track links as matches. Album path: Deezer /search/album + iTunes entity=album both rank Daft Punk #1; the Deezer album match yields UPC 724384960650 → MB barcode → exact Spotify/Tidal 1550545/Qobuz album links; YT Music UPC query lands "Discovery — Album — Daft Punk" (all verified logged-out 2026-08-20).',
+  },
+  {
+    input: 'https://www.deezer.com/album/302127',
+    parse: { platform: 'deezer', kind: 'album', id: '302127' },
+    live: 'Daft Punk – Discovery. Deezer album metadata carries upc 724384960650 directly → MB barcode cascade; the pasted Deezer card must stay "source" (sourceKeys exclusion). Spotify upc: search filter and plain-UPC query are measured dead (2026-08-20) — exact Spotify album only via MB.',
+  },
+  {
+    input: 'https://itunes.apple.com/gb/album/id697194953',
+    parse: { platform: 'appleMusic', kind: 'album', id: '697194953' },
+    live: 'The id-prefixed Apple form MusicBrainz stores in URL relations — parseApple must accept it or mapUrlsToPlatforms drops the Apple album match from the ISRC/UPC cascades.',
+  },
+  {
+    input: 'Will Smith - Miami',
+    text: { artist: 'Will Smith', title: 'Miami' },
+    live: 'Free-text input: no link, the dash splits artist from title, the normal enrich pipeline runs (search cards + catalog matches, no source card).',
+  },
+  {
+    input: 'Miami',
+    text: { artist: '', title: 'Miami' },
+    live: 'Reported 2026-08-20 as "Artist unknown" on the Spotify Miami track: title-only resolve depended on a single iTunes answer (rate-limited 403s). Now: Deezer-first + one targeted iTunes confirm auto-picks Will Smith (Deezer #1 + iTunes agree, verified); if iTunes is down, Deezer-only artist chips appear instead of silence.',
+  },
+  {
     input: 'https://spotify.link/AbCdEfGhIj',
     fail: { reason: 'shortlink', note: /open\.spotify\.com/ },
     live: 'Cannot be expanded client-side — user is told to open it once and paste the full link.',

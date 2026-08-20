@@ -6,6 +6,9 @@ const SPOTIFY_ID = /^[0-9A-Za-z]{22}$/;
 const YOUTUBE_ID = /^[0-9A-Za-z_-]{11}$/;
 const NUMERIC_ID = /^\d+$/;
 const ASIN = /^[A-Z0-9]{10}$/i;
+// MusicBrainz stores Apple links as itunes.apple.com/{cc}/album/id697194953 —
+// the optional "id" prefix keeps those URL relations resolvable.
+const APPLE_ID = /^(?:id)?(\d+)$/;
 
 function ok(platform, kind, id, url, meta = {}) {
   return { ok: true, platform, kind, id, url, meta };
@@ -53,6 +56,20 @@ const SMARTLINK_HOSTS = [
 function smartlinkNote(name, dead) {
   if (dead) return `${name} links are dead — the service shut down, this link won’t open anywhere.`;
   return `This is a ${name} smart link. It already holds the per-platform links, but browsers block reading it from another site — open it, copy the link for one platform and paste that here.`;
+}
+
+// Free text ("Will Smith - Miami") vs link — decided BEFORE parseInput,
+// which only ever sees links. A link is a scheme'd URL, a spotify: URI, or
+// a bare domain: a pre-path token whose last dot-label looks like a TLD
+// (≥2 letters). Dotted band names ("N.W.A", "R.E.M.") fail that test and
+// stay text; a dotted title like "Wow.Wow" is a known accepted miss.
+export function looksLikeLink(raw) {
+  const text = (raw || '').trim();
+  if (!text) return false;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true;
+  if (/^spotify:(track|album|artist|playlist):/i.test(text)) return true;
+  const head = text.split(/[/?#]/, 1)[0].replace(/\.$/, '');
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(head);
 }
 
 export function parseInput(raw) {
@@ -130,7 +147,7 @@ function parseApple(url, segs) {
     segs = segs.slice(1);
   }
   const kind = segs[0];
-  const lastNumeric = [...segs].reverse().find((s) => NUMERIC_ID.test(s));
+  const lastNumeric = [...segs].reverse().map((s) => APPLE_ID.exec(s)?.[1]).find(Boolean);
   if (kind === 'album' && lastNumeric) {
     const trackId = url.searchParams.get('i');
     if (trackId && NUMERIC_ID.test(trackId)) {

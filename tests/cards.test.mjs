@@ -59,13 +59,14 @@ test('a known ISRC upgrades the spotify and youtube-music searches only', () => 
   );
   const sp = byKey(models, 'spotify');
   assert.match(sp.url, /isrc%3ADE1TX2600017/);
-  assert.equal(sp.viaIsrc, true);
+  assert.equal(sp.viaCode, true);
+  assert.equal(sp.codeKind, 'isrc');
   assert.equal(sp.badge, 'search');
   const ytm = byKey(models, 'youtubeMusic');
   assert.equal(ytm.url, 'https://music.youtube.com/search?q=DE1TX2600017');
-  assert.equal(ytm.viaIsrc, true);
-  assert.equal(models.filter((m) => m.viaIsrc).length, 2);
-  assert.equal(byKey(models, 'deezer').viaIsrc, false);
+  assert.equal(ytm.viaCode, true);
+  assert.equal(models.filter((m) => m.viaCode).length, 2);
+  assert.equal(byKey(models, 'deezer').viaCode, false);
   assert.doesNotMatch(byKey(models, 'deezer').url, /isrc/i);
   assert.doesNotMatch(byKey(models, 'youtube').url, /DE1TX2600017/);
   // An exact spotify link (MusicBrainz hit) still wins over the isrc search.
@@ -74,7 +75,45 @@ test('a known ISRC upgrades the spotify and youtube-music searches only', () => 
     { artist: 'Mine', title: 'Ohne dich' }, DE, false
   );
   assert.equal(byKey(withExact, 'spotify').badge, 'match');
-  assert.equal(byKey(withExact, 'spotify').viaIsrc, false);
+  assert.equal(byKey(withExact, 'spotify').viaCode, false);
+});
+
+test('a known UPC upgrades only the youtube-music album search', () => {
+  const models = cardModels(
+    { exact: {}, sourceKeys: [], kind: 'album', upc: '724384960650' },
+    { artist: 'Daft Punk', title: 'Discovery' }, DE, false
+  );
+  const ytm = byKey(models, 'youtubeMusic');
+  assert.equal(ytm.url, 'https://music.youtube.com/search?q=724384960650');
+  assert.equal(ytm.viaCode, true);
+  assert.equal(ytm.codeKind, 'upc');
+  // Spotify must NOT carry the UPC (measured-dead search filter).
+  assert.doesNotMatch(byKey(models, 'spotify').url, /724384960650/);
+  assert.equal(models.filter((m) => m.viaCode).length, 1);
+  // A UPC on a track (impossible via the app, but defensive) does nothing.
+  const asTrack = cardModels(
+    { exact: {}, sourceKeys: [], kind: 'track', upc: '724384960650' },
+    { artist: 'Daft Punk', title: 'Discovery' }, DE, false
+  );
+  assert.equal(asTrack.filter((m) => m.viaCode).length, 0);
+  // An ISRC on an album kind never fires either.
+  const albumIsrc = cardModels(
+    { exact: {}, sourceKeys: [], kind: 'album', isrc: 'DE1TX2600017' },
+    { artist: 'Mine', title: 'Baum' }, DE, false
+  );
+  assert.equal(albumIsrc.filter((m) => m.viaCode).length, 0);
+});
+
+test('an exact album link from the UPC cascade gets embed and app link', () => {
+  const models = cardModels(
+    { exact: { spotify: 'https://open.spotify.com/album/2noRn2Aes5aoNVsU6iWThc' }, sourceKeys: [], kind: 'album', upc: '724384960650' },
+    { artist: 'Daft Punk', title: 'Discovery' }, DE, false
+  );
+  const sp = byKey(models, 'spotify');
+  assert.equal(sp.badge, 'match');
+  assert.equal(sp.viaCode, false);
+  assert.match(sp.embed.src, /open\.spotify\.com\/embed\/album\/2noRn2Aes5aoNVsU6iWThc/);
+  assert.equal(sp.app.href, 'spotify:album:2noRn2Aes5aoNVsU6iWThc');
 });
 
 test('models follow PLATFORMS order', () => {
@@ -98,4 +137,8 @@ test('cardSignature changes when url, badge or embed theme changes', () => {
   const s1 = byKey(cardModels({ exact: {}, sourceKeys: [], kind: 'track' }, { artist: 'a', title: 'x' }, DE, false), 'tidal');
   const s2 = byKey(cardModels({ exact: {}, sourceKeys: [], kind: 'track' }, { artist: 'a', title: 'y' }, DE, false), 'tidal');
   assert.notEqual(cardSignature(s1), cardSignature(s2));
+  // codeKind is part of the signature (the tooltip is rendered from it).
+  const plain = byKey(cardModels({ exact: {}, sourceKeys: [], kind: 'album' }, { artist: 'Daft Punk', title: 'Discovery' }, DE, false), 'youtubeMusic');
+  const viaUpc = byKey(cardModels({ exact: {}, sourceKeys: [], kind: 'album', upc: '724384960650' }, { artist: 'Daft Punk', title: 'Discovery' }, DE, false), 'youtubeMusic');
+  assert.notEqual(cardSignature(plain), cardSignature(viaUpc));
 });

@@ -2,9 +2,10 @@
 
 One music link in — every platform out.
 
-Paste a track link from Spotify, Apple Music, YouTube / YouTube Music, Deezer,
-TIDAL, Amazon Music, SoundCloud or Bandcamp and get links to the same track on
-every other streaming platform. Fully static, no server, no tracking.
+Paste a track or album link from Spotify, Apple Music, YouTube / YouTube
+Music, Deezer, TIDAL, Amazon Music, SoundCloud or Bandcamp — or just type
+“Artist - Title” — and get links to the same track or album on every other
+streaming platform. Fully static, no server, no tracking.
 
 **Live: <https://bmmmm.github.io/musiclinkii/>**
 
@@ -34,15 +35,20 @@ use it.
 
 | Platform | Parse input | Metadata | Exact link out | Search link out | Preview embed | App link |
 |---|---|---|---|---|---|---|
-| Spotify | ✓ | title (oEmbed) | best effort (ISRC → MusicBrainz) | ✓ (ISRC-precise where known) | ✓ | ✓ `spotify:` |
-| Apple Music | ✓ | ✓ (iTunes) | ✓ (iTunes match) | ✓ | — (embed player broken upstream) | — |
-| YouTube / YT Music | ✓ | ✓ (oEmbed) | same video | ✓ (YT Music ISRC-precise where known) | ✓ (nocookie) | — |
-| Deezer | ✓ | ✓ (JSONP) | ✓ (Deezer search) | ✓ | ✓ | ✓ `deezer://` |
-| TIDAL | ✓ | best effort (MusicBrainz) | — | ✓ | ✓ | — |
+| Spotify | ✓ | title (oEmbed) | best effort (tracks: ISRC → MusicBrainz; albums: UPC/barcode → MusicBrainz) | ✓ (ISRC-precise where known) | ✓ | ✓ `spotify:` |
+| Apple Music | ✓ | ✓ (iTunes) | ✓ (iTunes match, tracks + albums) | ✓ | — (embed player broken upstream) | — |
+| YouTube / YT Music | ✓ | ✓ (oEmbed) | same video | ✓ (YT Music ISRC-precise for tracks, UPC-precise for albums, where known) | ✓ (nocookie) | — |
+| Deezer | ✓ | ✓ (JSONP) | ✓ (Deezer search, tracks + albums) | ✓ | ✓ | ✓ `deezer://` |
+| TIDAL | ✓ | best effort (MusicBrainz) | best effort (albums: UPC → MusicBrainz) | ✓ | ✓ | — |
 | Amazon Music | ✓ | — | — | ✓ | — | — |
 | SoundCloud | ✓ | best effort (oEmbed) | — | ✓ | ✓ | — |
 | Bandcamp | ✓ | guessed from URL | — | ✓ | — | — |
-| Qobuz | ✓ | guessed from URL | — | ✓ | — | — |
+| Qobuz | ✓ | guessed from URL | best effort (albums: UPC → MusicBrainz) | ✓ | — | — |
+
+**No link at hand?** Typing “Artist - Title” (or just a title) into the
+input runs the same pipeline from text: search links for every platform,
+plus catalog matches where Deezer/iTunes agree. Ambiguous titles get
+one-click artist chips instead of a silent guess.
 
 Short links (`spotify.link`, `link.deezer.com`, `on.soundcloud.com`) can't be
 expanded client-side — open them once and paste the full URL instead.

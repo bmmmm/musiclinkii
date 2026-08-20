@@ -13,11 +13,11 @@ import { slugToWords, parseInput } from './parsers.mjs';
 
 const TIMEOUT_MS = 8000;
 
-async function getJson(url, timeoutMs = TIMEOUT_MS) {
+async function getJson(url, init = {}) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } finally {
@@ -59,7 +59,21 @@ function mbJson(pathAndQuery) {
     const wait = mbLast + MB_GAP_MS - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     mbLast = Date.now();
-    return getJson(`https://musicbrainz.org/ws/2/${pathAndQuery}`);
+    // no-store: Chrome caches MB's 503 throttle responses and re-serves
+    // them without hitting the network (measured 2026-08-20) — a cached
+    // 503 would poison every retry forever.
+    const url = `https://musicbrainz.org/ws/2/${pathAndQuery}`;
+    try {
+      return await getJson(url, { cache: 'no-store' });
+    } catch (err) {
+      // MB 503s sporadically even under the 1 req/s budget (measured
+      // 2026-08-20: one of three spaced calls throttled) — a single
+      // longer-spaced retry recovers those without hammering.
+      if (!/HTTP 503/.test(String(err))) throw err;
+      await new Promise((r) => setTimeout(r, MB_GAP_MS * 2));
+      mbLast = Date.now();
+      return getJson(url, { cache: 'no-store' });
+    }
   });
   mbChain = run.then(() => {}, () => {});
   return run;
@@ -104,7 +118,16 @@ export function splitDashTitle(title) {
   return { artist, title: rest };
 }
 
-const meta = (fields) => ({ title: '', artist: '', thumb: '', exact: {}, isrc: '', note: '', ...fields });
+// Free-text input ("Will Smith - Miami") → artist/title guess. The dash
+// split is a guess — the fields stay editable, so a wrong or reversed
+// split is one edit away.
+export function parseFreeText(raw) {
+  const text = cleanTitle((raw || '').trim());
+  if (!text) return null;
+  return splitDashTitle(text) || { artist: '', title: text };
+}
+
+const meta = (fields) => ({ title: '', artist: '', thumb: '', exact: {}, isrc: '', upc: '', note: '', ...fields });
 
 async function fromApple(parsed) {
   const country = parsed.meta.storefront || 'us';
@@ -135,6 +158,7 @@ async function fromDeezer(parsed) {
     artist: data.artist?.name || '',
     thumb: data.album?.cover_medium || data.cover_medium || '',
     isrc: data.isrc || '',
+    upc: data.upc || '',
     exact: data.link ? { deezer: data.link } : {},
   });
 }
@@ -164,22 +188,28 @@ async function fromSpotify(parsed) {
 }
 
 async function fromTidal(parsed) {
-  // Best effort: MusicBrainz keeps URL relationships for many Tidal links.
+  // Best effort: MusicBrainz keeps URL relationships for many Tidal links —
+  // recording rels for tracks, release rels for albums (album verified
+  // live 2026-08-20: tidal.com/album/1550545 → release "Discovery").
+  const album = parsed.kind === 'album';
+  const path = album ? 'album' : 'track';
   const candidates = [
-    `https://tidal.com/track/${parsed.id}`,
-    `https://listen.tidal.com/track/${parsed.id}`,
+    `https://tidal.com/${path}/${parsed.id}`,
+    `https://listen.tidal.com/${path}/${parsed.id}`,
   ];
   for (const resource of candidates) {
     try {
-      const data = await mbJson(`url/?resource=${encodeURIComponent(resource)}&inc=recording-rels&fmt=json`);
-      const rec = (data.relations || []).map((rel) => rel.recording).find(Boolean);
-      if (!rec) continue;
+      const data = await mbJson(
+        `url/?resource=${encodeURIComponent(resource)}&inc=${album ? 'release' : 'recording'}-rels&fmt=json`
+      );
+      const entity = (data.relations || []).map((rel) => (album ? rel.release : rel.recording)).find(Boolean);
+      if (!entity) continue;
       let artist = '';
       try {
-        const full = await mbJson(`recording/${rec.id}?inc=artist-credits&fmt=json`);
+        const full = await mbJson(`${album ? 'release' : 'recording'}/${entity.id}?inc=artist-credits&fmt=json`);
         artist = (full['artist-credit'] || []).map((c) => c.name).join(', ');
       } catch { /* keep title-only result */ }
-      return meta({ title: rec.title || '', artist });
+      return meta({ title: entity.title || '', artist });
     } catch { /* try next candidate */ }
   }
   throw new Error('no keyless metadata for Tidal');
@@ -288,6 +318,35 @@ export async function fetchDeezerIsrc(trackId) {
   return data?.isrc || '';
 }
 
+// Deezer album lookup → UPC/barcode (the album analog of fetchDeezerIsrc).
+export async function fetchDeezerUpc(albumId) {
+  const data = await jsonp(`https://api.deezer.com/album/${albumId}`);
+  if (!data || data.error) return '';
+  const upc = String(data.upc || '').trim();
+  // Guard against placeholder values like "0" — real barcodes are long digits.
+  return /^\d{6,}$/.test(upc) ? upc : '';
+}
+
+// UPC → MusicBrainz release search → per-release URL relations → exact
+// album links on other platforms (Spotify/Tidal/Qobuz/Deezer verified for
+// Discovery, 2026-08-20). The search response carries no url-rels inline,
+// so the two-step is mandatory; capped at 2 release lookups ≈ 3 throttled
+// MB calls — that is the whole budget, don't raise it. Spotify's own upc:
+// search filter is measured dead (see ENDPOINTS.md) — this is the only
+// keyless path to an exact Spotify album link.
+export async function findLinksByUpc(upc) {
+  if (!upc) return {};
+  const data = await mbJson(`release/?query=${encodeURIComponent(`barcode:${upc}`)}&fmt=json&limit=2`);
+  const urls = [];
+  for (const release of (data.releases || []).slice(0, 2)) {
+    try {
+      const full = await mbJson(`release/${release.id}?inc=url-rels&fmt=json`);
+      urls.push(...(full.relations || []).map((rel) => rel.url?.resource).filter(Boolean));
+    } catch { /* one missing release must not kill the other */ }
+  }
+  return mapUrlsToPlatforms(urls);
+}
+
 // ISRC → MusicBrainz recording URL relations → exact links on other
 // platforms (notably Spotify, which has no keyless search). Community
 // coverage: good for known tracks, absent for fresh releases — callers
@@ -303,83 +362,142 @@ export async function findLinksByIsrc(isrc) {
   return mapUrlsToPlatforms(urls);
 }
 
-export async function findExactLinks({ artist, title }, region) {
-  if (!title) return {};
-  const out = {};
-  const qTitle = searchableTitle(title);
-  const strictEq = (cand) => normalize(searchableTitle(cand)) === normalize(qTitle);
-  const titleOk = (cand) => looselyMatches(cand, title) || looselyMatches(cand, qTitle);
+// --- Catalog search: one candidate shape for both catalogs and kinds ---
+// { title, artist, link, id } — the selection logic below is written once
+// and serves tracks and albums alike.
 
-  // Plain queries — Deezer's quoted artist:"…" track:"…" syntax returns
-  // empty result sets for many valid tracks (verified live).
-  const query = `${artist || ''} ${qTitle}`.trim();
-  const [deezer, itunes] = await Promise.allSettled([
-    jsonp(`https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=10`),
-    getJson(
-      `https://itunes.apple.com/search?term=${encodeURIComponent(query)}` +
-      `&media=music&entity=song&limit=10&country=${region.country}`
-    ),
-  ]);
-
-  const dHits = deezer.status === 'fulfilled' ? deezer.value?.data || [] : [];
-  const iHits = itunes.status === 'fulfilled' ? itunes.value?.results || [] : [];
-
-  if (artist) {
-    const d = dHits.find((t) => titleOk(t.title) && looselyMatches(t.artist?.name, artist));
-    if (d) out.deezer = d.link;
-    const i = iHits.find((t) => titleOk(t.trackName) && looselyMatches(t.artistName, artist));
-    if (i) out.appleMusic = i.trackViewUrl;
-  } else {
-    // Title-only (e.g. Spotify oEmbed gives no artist): only trust a match
-    // when two independent catalogs agree on the artist for an exact-title
-    // hit — a single catalog's top hit is too often the wrong song (covers
-    // and remixes rank above the original in title-only searches).
-    const d = dHits.find((t) => strictEq(t.title));
-    if (d?.artist?.name) {
-      let iHit = iHits.find((t) =>
-        strictEq(t.trackName) && looselyMatches(t.artistName, d.artist.name));
-      if (!iHit) {
-        // The original may rank below covers in the title-only results —
-        // confirm with a second, artist-targeted iTunes search.
-        try {
-          const confirm = await getJson(
-            `https://itunes.apple.com/search?term=${encodeURIComponent(`${d.artist.name} ${qTitle}`)}` +
-            `&media=music&entity=song&limit=10&country=${region.country}`
-          );
-          iHit = (confirm.results || []).find((t) =>
-            titleOk(t.trackName) && looselyMatches(t.artistName, d.artist.name));
-        } catch { /* no confirmation possible — stay conservative */ }
-      }
-      if (iHit) {
-        out.artist = d.artist.name;
-        out.deezer = d.link;
-        out.appleMusic = iHit.trackViewUrl;
-      } else {
-        // Deezer's top hit found no backing at all — the title is shared
-        // by many artists ("Cooked"). Don't guess: offer the artists BOTH
-        // catalogs agree on and let the user pick with one click.
-        out.artistCandidates = artistCandidates(dHits, iHits, qTitle);
-      }
-    }
-  }
-
-  return out;
+export function deezerCandidates(data, kind = 'track') {
+  const rows = Array.isArray(data?.data) ? data.data : [];
+  return rows
+    .map((r) => ({
+      title: r.title || '',
+      artist: r.artist?.name || '',
+      link: r.link || (kind === 'album' && r.id ? `https://www.deezer.com/album/${r.id}` : ''),
+      id: r.id != null ? String(r.id) : '',
+    }))
+    .filter((c) => c.title && c.link);
 }
 
-// Artists that appear with a strict-equal title in BOTH title-only result
-// lists (Deezer order kept — their ranking is the relevance signal).
-export function artistCandidates(dHits, iHits, qTitle) {
-  const strictEq = (cand) => normalize(searchableTitle(cand)) === normalize(qTitle);
-  const iStrict = (iHits || []).filter((t) => strictEq(t.trackName));
+export function itunesCandidates(data, kind = 'track') {
+  const rows = Array.isArray(data?.results) ? data.results : [];
+  return rows
+    .map((r) => (kind === 'album'
+      ? { title: r.collectionName || '', artist: r.artistName || '', link: r.collectionViewUrl || '', id: r.collectionId != null ? String(r.collectionId) : '' }
+      : { title: r.trackName || '', artist: r.artistName || '', link: r.trackViewUrl || '', id: r.trackId != null ? String(r.trackId) : '' }))
+    .filter((c) => c.title && c.link);
+}
+
+// First candidate whose title fits and whose artist matches — the order of
+// `cands` is the catalog's own relevance ranking.
+export function pickByArtist(cands, artist, title) {
+  const qTitle = searchableTitle(title);
+  const titleOk = (c) => looselyMatches(c, title) || looselyMatches(c, qTitle);
+  return (cands || []).find((c) => titleOk(c.title) && looselyMatches(c.artist, artist)) || null;
+}
+
+// Candidates whose title equals the query title (rank preserved).
+export function strictTitleHits(cands, qTitle) {
+  const q = normalize(searchableTitle(qTitle));
+  return (cands || []).filter((c) => normalize(searchableTitle(c.title)) === q);
+}
+
+// Artist chips for an ambiguous title: strict-title artists from Deezer in
+// rank order, names iTunes also lists hoisted to the front. iCands === null
+// means iTunes gave no signal (down or rate-limited) — Deezer-only chips
+// are still offered: a chip is a user choice, not an auto-pick.
+export function artistCandidates(dCands, iCands, qTitle, limit = 4) {
+  const iStrict = iCands ? strictTitleHits(iCands, qTitle) : [];
   const seen = new Set();
-  const out = [];
-  for (const d of dHits || []) {
-    if (!strictEq(d.title)) continue;
-    const name = d.artist?.name || '';
-    const key = normalize(name);
+  const confirmed = [];
+  const unconfirmed = [];
+  for (const d of strictTitleHits(dCands, qTitle)) {
+    const key = normalize(d.artist);
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    if (iStrict.some((t) => looselyMatches(t.artistName, name))) out.push(name);
+    (iStrict.some((c) => looselyMatches(c.artist, d.artist)) ? confirmed : unconfirmed).push(d.artist);
   }
-  return out.slice(0, 4);
+  return confirmed.concat(unconfirmed).slice(0, limit);
+}
+
+// Plain queries — Deezer's quoted artist:"…" track:"…" syntax returns
+// empty result sets for many valid tracks (verified live).
+async function deezerSearch(kind, query) {
+  const route = kind === 'album' ? 'search/album' : 'search';
+  const data = await jsonp(`https://api.deezer.com/${route}?q=${encodeURIComponent(query)}&limit=10`);
+  return deezerCandidates(data, kind);
+}
+
+// iTunes rate-limits hard (bursts of 403s) — after a rejection, skip iTunes
+// for a minute instead of hammering. Returns null for "no signal" (failed
+// or cooling down) and [] for "searched, found nothing" — callers branch
+// on the difference.
+let itunesBlockedUntil = 0;
+const ITUNES_COOLDOWN_MS = 60_000;
+
+async function itunesSearch(kind, term, region) {
+  if (Date.now() < itunesBlockedUntil) return null;
+  const entity = kind === 'album' ? 'album' : 'song';
+  try {
+    const data = await getJson(
+      `https://itunes.apple.com/search?term=${encodeURIComponent(term)}` +
+      `&media=music&entity=${entity}&limit=10&country=${region.country}`
+    );
+    return itunesCandidates(data, kind);
+  } catch {
+    itunesBlockedUntil = Date.now() + ITUNES_COOLDOWN_MS;
+    return null;
+  }
+}
+
+// Title-only resolve (Spotify sources carry no artist): Deezer first —
+// JSONP, no rate limit — then ONE artist-targeted iTunes confirm. Only a
+// two-catalog agreement auto-picks (a single catalog's top hit is too
+// often a cover or remix); anything less becomes chips for the user.
+async function resolveTitleOnly(kind, title, region) {
+  const qTitle = searchableTitle(title);
+  let dCands;
+  try {
+    dCands = await deezerSearch(kind, qTitle);
+  } catch {
+    return {};
+  }
+  const primary = strictTitleHits(dCands, qTitle)[0];
+  if (!primary?.artist) return {};
+  const iCands = await itunesSearch(kind, `${primary.artist} ${qTitle}`, region);
+  const iHit = iCands ? pickByArtist(iCands, primary.artist, title) : null;
+  if (iHit) {
+    return {
+      artist: primary.artist,
+      deezer: primary.link,
+      appleMusic: iHit.link,
+      // "Not right?" chips: the ranked alternatives minus the picked one.
+      artistCandidates: artistCandidates(dCands, iCands, qTitle)
+        .filter((name) => !looselyMatches(name, primary.artist)),
+    };
+  }
+  return {
+    artistCandidates: artistCandidates(dCands, iCands, qTitle),
+    itunesDown: iCands === null,
+  };
+}
+
+export async function findExactLinks({ artist, title, kind = 'track' }, region) {
+  if (!title) return {};
+  // Artist and playlist links have nothing to title-match — the track
+  // pipeline would fabricate confident nonsense for them.
+  if (kind === 'artist' || kind === 'playlist') return {};
+
+  if (!artist) return resolveTitleOnly(kind, title, region);
+
+  const query = `${artist} ${searchableTitle(title)}`.trim();
+  const [dz, it] = await Promise.allSettled([
+    deezerSearch(kind, query),
+    itunesSearch(kind, query, region),
+  ]);
+  const out = {};
+  const d = dz.status === 'fulfilled' ? pickByArtist(dz.value, artist, title) : null;
+  if (d) out.deezer = d.link;
+  const i = it.status === 'fulfilled' && it.value ? pickByArtist(it.value, artist, title) : null;
+  if (i) out.appleMusic = i.link;
+  return out;
 }
