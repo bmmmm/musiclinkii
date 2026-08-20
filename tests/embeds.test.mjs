@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseInput } from '../js/parsers.mjs';
 import { embedFor, appLinkFor } from '../js/embeds.mjs';
+import { mapUrlsToPlatforms } from '../js/adapters.mjs';
 
 const parse = (url) => parseInput(url);
 
@@ -42,6 +43,26 @@ test('embedFor returns null where no embed is buildable', () => {
   assert.equal(embedFor(parse('https://open.qobuz.com/album/mm9mf2wj0a54u')), null);
   assert.equal(embedFor({ ok: false }), null);
   assert.equal(embedFor(null), null);
+});
+
+test('mapUrlsToPlatforms maps MusicBrainz URL relations onto cards', () => {
+  // Real relation set from the ISRC chain measurement (Rick Astley).
+  const mapped = mapUrlsToPlatforms([
+    'https://music.youtube.com/watch?v=Om61naQC8is',
+    'https://open.spotify.com/track/1Ojc3QD0dfJ5HG8uzLsfTg',
+    'https://open.spotify.com/track/6JEK0CvvjDjjMUBFoXShNZ',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://rateyourmusic.com/song/rick-astley/never-gonna-give-you-up/',
+    'https://music.apple.com/gb/song/1438556832',
+  ]);
+  assert.deepEqual(mapped, {
+    youtubeMusic: 'https://music.youtube.com/watch?v=Om61naQC8is',
+    spotify: 'https://open.spotify.com/track/1Ojc3QD0dfJ5HG8uzLsfTg',
+    youtube: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    appleMusic: 'https://music.apple.com/gb/song/1438556832',
+  });
+  assert.deepEqual(mapUrlsToPlatforms([]), {});
+  assert.deepEqual(mapUrlsToPlatforms(['https://example.com/x']), {});
 });
 
 test('appLinkFor: only documented schemes (Spotify) plus Deezer best effort', () => {

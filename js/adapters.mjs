@@ -9,7 +9,7 @@
 //   MusicBrainz ws/2      ACAO:*            → fetch() (~1 req/s budget)
 //   Tidal                 no usable keyless metadata endpoint
 
-import { slugToWords } from './parsers.mjs';
+import { slugToWords, parseInput } from './parsers.mjs';
 
 const TIMEOUT_MS = 8000;
 
@@ -248,6 +248,41 @@ export function searchableTitle(title) {
     .replace(/\s+/g, ' ')
     .trim();
   return stripped || String(title || '').replace(/"/g, '').trim();
+}
+
+// Feed a list of URLs through our own parser and keep the first hit per
+// platform card. music.youtube.com links count for the YouTube Music card.
+export function mapUrlsToPlatforms(urls) {
+  const out = {};
+  for (const url of urls || []) {
+    const parsed = parseInput(url);
+    if (!parsed.ok) continue;
+    const isYtMusic = parsed.platform === 'youtube' && parsed.meta?.music;
+    const key = isYtMusic ? 'youtubeMusic' : parsed.platform;
+    if (!out[key]) out[key] = isYtMusic ? `https://music.youtube.com/watch?v=${parsed.id}` : parsed.url;
+  }
+  return out;
+}
+
+// Deezer track lookup → ISRC (Deezer is the only keyless source of ISRCs).
+export async function fetchDeezerIsrc(trackId) {
+  const data = await jsonp(`https://api.deezer.com/track/${trackId}`);
+  return data?.isrc || '';
+}
+
+// ISRC → MusicBrainz recording URL relations → exact links on other
+// platforms (notably Spotify, which has no keyless search). Community
+// coverage: good for known tracks, absent for fresh releases — callers
+// must treat this as best effort.
+export async function findLinksByIsrc(isrc) {
+  if (!isrc) return {};
+  const data = await getJson(
+    `https://musicbrainz.org/ws/2/isrc/${encodeURIComponent(isrc)}?fmt=json&inc=url-rels`
+  );
+  const urls = (data.recordings || [])
+    .flatMap((rec) => (rec.relations || []).map((rel) => rel.url?.resource))
+    .filter(Boolean);
+  return mapUrlsToPlatforms(urls);
 }
 
 export async function findExactLinks({ artist, title }, region) {

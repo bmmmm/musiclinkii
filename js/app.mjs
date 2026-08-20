@@ -3,7 +3,7 @@
 
 import { parseInput } from './parsers.mjs';
 import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
-import { fetchMetadata, findExactLinks } from './adapters.mjs';
+import { fetchMetadata, findExactLinks, fetchDeezerIsrc, findLinksByIsrc } from './adapters.mjs';
 import { iconSvg } from './icons.mjs';
 import { embedFor, appLinkFor } from './embeds.mjs';
 
@@ -29,6 +29,8 @@ const state = {
   parsed: null,
   exact: {},        // platformKey → exact URL
   sourceKeys: [],   // platform keys covered by the pasted link itself
+  isrc: '',         // from Deezer — unlocks the MusicBrainz link lookup
+  isrcChecked: '',  // last ISRC already sent to MusicBrainz (1 req/s budget)
   generation: 0,    // invalidates in-flight fetches when input changes
 };
 
@@ -180,13 +182,45 @@ const enrich = debounce(async () => {
       setStatus('Artist unknown — add it above for better matches.', 'info');
     }
     render();
+    await enrichViaIsrc(gen);
   } catch { /* search links stay — enrichment is best effort */ }
 }, 500);
+
+// Second best-effort stage: ISRC → MusicBrainz URL relations. This is
+// the only keyless path to an exact Spotify link (Spotify has no keyless
+// search); coverage is community-driven, so failures are silent.
+async function enrichViaIsrc(gen) {
+  try {
+    let isrc = state.isrc;
+    if (!isrc && state.exact.deezer) {
+      const dz = parseInput(state.exact.deezer);
+      if (dz.ok && dz.platform === 'deezer' && dz.kind === 'track') {
+        isrc = await fetchDeezerIsrc(dz.id);
+        if (gen !== state.generation) return;
+        state.isrc = isrc;
+      }
+    }
+    if (!isrc || state.isrcChecked === isrc) return;
+    state.isrcChecked = isrc;
+    const links = await findLinksByIsrc(isrc);
+    if (gen !== state.generation) return;
+    let added = false;
+    for (const [key, url] of Object.entries(links)) {
+      if (!state.exact[key] && !state.sourceKeys.includes(key)) {
+        state.exact[key] = url;
+        added = true;
+      }
+    }
+    if (added) render();
+  } catch { /* best effort — search links stay */ }
+}
 
 function resetTrack() {
   state.parsed = null;
   state.exact = {};
   state.sourceKeys = [];
+  state.isrc = '';
+  state.isrcChecked = '';
   el.artist.value = '';
   el.title.value = '';
   el.thumb.hidden = true;
@@ -233,6 +267,7 @@ async function handleInput() {
       el.thumb.hidden = false;
     }
     Object.assign(state.exact, meta.exact || {});
+    if (meta.isrc) state.isrc = meta.isrc;
     for (const key of state.sourceKeys) state.exact[key] = parsed.url;
     setStatus(meta.note || '', meta.note ? 'warn' : 'info');
   } catch {
