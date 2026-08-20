@@ -17,6 +17,18 @@ code location. All statuses were verified empirically on the date given
 | `open.spotify.com/oembed?url=` | Spotify link → title only (**no artist field**), thumbnail | none | `*` | 2026-08-19 | `js/adapters.mjs` `fromSpotify` | [Spotify oEmbed docs](https://developer.spotify.com/documentation/embeds/reference/oembed) |
 | `musicbrainz.org/ws/2/url/?resource=` + `/recording/{id}` | Tidal fallback: URL relation → recording → artist credits | none (UA not settable from browsers) | `*` | 2026-08-19 | `js/adapters.mjs` `fromTidal` | [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API), rate ~1 req/s, 503 on excess |
 | `musicbrainz.org/ws/2/isrc/{isrc}?inc=url-rels` | ISRC (from Deezer) → recording URL relations → **the only keyless path to an exact Spotify link**; also yields Apple/YT Music/Tidal links | none | `*` | 2026-08-20 | `js/adapters.mjs` `findLinksByIsrc`, `js/app.mjs` `enrichViaIsrc` | same as above. Coverage is community-driven: good for known tracks (Rick Astley, Daft Punk verified), 404/empty for fresh releases (Mine 2026, Dilated Peoples verified empty) |
+
+**Measured dead ends for the Spotify match rate (2026-08-20, regression
+list, do not rebuild):** the MB *recording search*
+(`/ws/2/recording?query=…` + per-recording `inc=url-rels` lookup) scored
+0/6 — search returns valid recordings (score 100), but the Spotify rels
+hang on *other* recordings of the same song that only the ISRC lookup
+aggregates; even Rick Astley/Daft Punk miss via search. Trying *alternate
+Deezer ISRCs* (remasters/compilations) also adds 0 — they are either not
+in MB at all (404) or point to recordings without url-rels. The coverage
+gap is missing Spotify URL relations in MusicBrainz itself, not the
+lookup route. All MB calls share one throttle queue (`mbJson`, ~1.1 s
+spacing) to respect the 1 req/s budget.
 | `soundcloud.com/oembed?url=` | SoundCloud track → "Title by Artist" | none | untested, wrapped in try/catch | — | `js/adapters.mjs` `fromSoundcloud` | [SC oEmbed docs](https://developers.soundcloud.com/docs/oembed) |
 
 No keyless metadata path exists (verified, not an oversight): **Tidal**

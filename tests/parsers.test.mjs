@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseInput, slugToWords } from '../js/parsers.mjs';
+import { REGRESSION_CASES } from './fixtures/regression-cases.mjs';
 
 const SPOTIFY_ID = '0Jcij1eWd5bDMU5iPbxe2i';
 
@@ -161,6 +162,26 @@ test('garbage input fails cleanly', () => {
   assert.equal(parseInput('https://example.com/track/123').ok, false);
   assert.equal(parseInput('https://open.spotify.com/track/tooshort').ok, false);
   assert.equal(parseInput('https://www.youtube.com/watch?v=bad').ok, false);
+});
+
+test('regression cases from real sessions parse as documented', () => {
+  for (const c of REGRESSION_CASES) {
+    const r = parseInput(c.input);
+    if (c.parse) {
+      assert.equal(r.ok, true, c.input);
+      for (const [k, v] of Object.entries(c.parse)) {
+        if (k === 'meta') {
+          for (const [mk, mv] of Object.entries(v)) assert.equal(r.meta[mk], mv, `${c.input} meta.${mk}`);
+        } else {
+          assert.equal(r[k], v, `${c.input} → ${k}`);
+        }
+      }
+    } else {
+      assert.equal(r.ok, false, c.input);
+      assert.equal(r.reason, c.fail.reason, c.input);
+      assert.match(r.note, c.fail.note, c.input);
+    }
+  }
 });
 
 test('slugToWords', () => {
