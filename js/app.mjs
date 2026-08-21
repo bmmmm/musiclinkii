@@ -773,8 +773,12 @@ async function runArtistLookup(gen, artist, pick) {
   // Every known profile URL anchors the MB lookup — the pasted link AND
   // the catalog matches. MB may hold any one of them (one request either way).
   const anchorUrls = [state.parsed?.url, state.exact.deezer, state.exact.appleMusic];
-  const links = await findLinksByArtist({ urls: anchorUrls, name: el.artist.value.trim() });
+  const { links, throttled } = await findLinksByArtist({ urls: anchorUrls, name: el.artist.value.trim() });
   if (gen !== state.generation) return;
+  // Same silent failure the code path enrichByCode used to have: a
+  // throttled fan-out shows "1 exact match" where the last one found
+  // five, and MB is the only keyless route to those artist links.
+  if (throttled) noteMbThrottled();
   mergeExactLinks(state, links);
   render();
   updateOutcome('artist');

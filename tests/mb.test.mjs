@@ -6,7 +6,7 @@
 // not, which is why this file is the slow one in the suite.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findLinksByUpc } from '../js/adapters.mjs';
+import { findLinksByUpc, findLinksByArtist } from '../js/adapters.mjs';
 import { enrichByCode } from '../js/enrich.mjs';
 
 // Measured 2026-08-21, barcode:724384960650 (Daft Punk — Discovery): the
@@ -114,4 +114,49 @@ test('a round that finds links reports no throttling', async () => {
   const state = enrichState();
   assert.equal(await enrichByCode('isrc', enrichCtx(state)), false);
   assert.equal(state.exact.spotify, 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i');
+});
+
+// --- The artist fan-out reports the same way. It swallows its own errors
+// on the way to the name-search fallback, so a throttled round is
+// indistinguishable from "MusicBrainz does not know this artist" unless
+// it says so itself.
+
+// No `name`, so the name-search fallback is skipped and the round is two
+// MB calls (the anchor lookup plus mbJson's one retry) instead of four.
+test('a throttled artist fan-out says so instead of looking like an unknown artist', async () => {
+  const calls = stubStatus(503);
+  const { links, throttled } = await findLinksByArtist({ urls: ['https://www.deezer.com/artist/27'], name: '' });
+  assert.equal(throttled, true);
+  assert.deepEqual(links, {}, 'and it still resolves — the caller must reach updateOutcome');
+  assert.equal(calls.length, 2, 'the anchor lookup and its retry, no name search without a name');
+});
+
+test('an artist round that resolves reports no throttling', async () => {
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    status: 200,
+    json: async () => (String(url).includes('/url/')
+      // The url route answers { urls: [{ relations }] }, artist on the rel.
+      ? { urls: [{ relations: [{ artist: { id: 'mbid-daft', name: 'Daft Punk' } }] }] }
+      : { relations: [{ url: { resource: 'https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi' } }] }),
+  });
+  const { links, throttled } = await findLinksByArtist({ urls: ['https://www.deezer.com/artist/27'], name: 'Daft Punk' });
+  assert.equal(throttled, false);
+  assert.equal(links.spotify, 'https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi');
+});
+
+test('a throttled FINAL lookup is reported too — the artist was known, the links were not', async () => {
+  let n = 0;
+  globalThis.fetch = async (url) => {
+    n += 1;
+    // Anchor lookup succeeds, every artist/{mbid} attempt throttles.
+    if (String(url).includes('/url/')) {
+      return { ok: true, status: 200, json: async () => ({ urls: [{ relations: [{ artist: { id: 'mbid-daft', name: 'Daft Punk' } }] }] }) };
+    }
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+  const { links, throttled } = await findLinksByArtist({ urls: ['https://www.deezer.com/artist/27'], name: 'Daft Punk' });
+  assert.equal(throttled, true, 'the failure the user can actually act on');
+  assert.deepEqual(links, {});
+  assert.equal(n, 3, 'anchor lookup, then the artist lookup and its retry');
 });

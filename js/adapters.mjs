@@ -812,6 +812,11 @@ export function relsConfirmAnchor(relUrls, anchorUrls) {
 // name-search hit only counts when the artist's own url-rels confirm one
 // of the anchors — that check rides on the artist/{mbid} lookup we make
 // anyway. 2-3 spaced MB calls total, all through mbChain.
+//
+// → { links, throttled }, and it never rejects. Every MB call here is
+// caught, because two of the three are expected to fail routinely (MB
+// simply has no relation for this URL) and the caller cannot tell those
+// apart from a throttled round on its own. `throttled` is that answer.
 export async function findLinksByArtist({ urls = [], name }) {
   // Deduped: the caller passes the pasted URL AND the catalog matches, and
   // for a Deezer artist page those are literally the same link.
@@ -819,13 +824,17 @@ export async function findLinksByArtist({ urls = [], name }) {
   // The anchors and the name ARE the input — same identity, same answer.
   // Sorted so the caller's argument order cannot fragment the key.
   const key = `mb:artist:${[...anchors].sort().join(' ')}|${normalize(name)}`;
-  // This path absorbs its own errors on the way to the name-search
-  // fallback, so cachedResult never sees the rejection. A round that only
-  // came up empty because MB throttled it must not be stored — that would
-  // turn a one-minute throttling window into a day of "no artist links".
+  // This path absorbs its own errors, so cachedResult never sees a
+  // rejection and cannot skip the write on its own. Two flags decide it
+  // instead: `throttled` — a 503 anywhere means links we should have had
+  // may be missing, so neither store the round nor keep quiet about it;
+  // `aborted` — the final lookup died, so the empty map is ignorance, not
+  // an answer. Either way a one-minute throttle must not become a day of
+  // "no artist links".
   let throttled = false;
+  let aborted = false;
   const markThrottle = (err) => { throttled = throttled || isThrottled(err); };
-  return cachedResult(key, (links) => (throttled ? 0 : mbTtl(links)), async () => {
+  const links = await cachedResult(key, (v) => (throttled || aborted ? 0 : mbTtl(v)), async () => {
     const resources = [...new Set(anchors.flatMap(expandArtistAnchor))];
     let found = null;
     let anchored = false;
@@ -845,11 +854,20 @@ export async function findLinksByArtist({ urls = [], name }) {
       } catch (err) { markThrottle(err); /* best effort */ }
     }
     if (!found) return {};
-    const full = await mbJson(`artist/${found.id}?inc=url-rels&fmt=json`);
-    const relUrls = (full.relations || []).map((rel) => rel.url?.resource).filter(Boolean);
-    if (!anchored && anchors.length && !relsConfirmAnchor(relUrls, anchors)) return {};
-    return mapUrlsToPlatforms(relUrls, 'artist');
+    try {
+      const full = await mbJson(`artist/${found.id}?inc=url-rels&fmt=json`);
+      const relUrls = (full.relations || []).map((rel) => rel.url?.resource).filter(Boolean);
+      if (!anchored && anchors.length && !relsConfirmAnchor(relUrls, anchors)) return {};
+      return mapUrlsToPlatforms(relUrls, 'artist');
+    } catch (err) {
+      // We know which artist this is and still came away with nothing —
+      // that is the one failure the user can act on ("try again").
+      markThrottle(err);
+      aborted = true;
+      return {};
+    }
   });
+  return { links, throttled };
 }
 
 export async function findExactLinks({ artist, title, kind = 'track' }, region, sourceKeys = []) {
