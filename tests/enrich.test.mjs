@@ -5,9 +5,33 @@
 // card) decide whether a pasted link survives a later catalog round.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeExactLinks } from '../js/enrich.mjs';
+import { mergeExactLinks, missingMbKeys, MB_ONLY_KEYS } from '../js/enrich.mjs';
 
 const stateWith = (exact = {}, sourceKeys = []) => ({ exact: { ...exact }, sourceKeys });
+
+// Feeds the UPC early exit: too wide a set never empties and the second
+// release lookup runs forever; too narrow a one drops exact links.
+test('missingMbKeys covers only the platforms MusicBrainz alone can reach', () => {
+  assert.deepEqual(MB_ONLY_KEYS, ['spotify', 'tidal', 'qobuz'],
+    'Deezer, Apple and YouTube have direct keyless routes that already ran');
+  assert.deepEqual(missingMbKeys(stateWith()), ['spotify', 'tidal', 'qobuz']);
+});
+
+test('missingMbKeys treats an exact link and a source card alike — both are landed', () => {
+  const state = stateWith(
+    { tidal: 'https://tidal.com/album/1550545', appleMusic: 'https://music.apple.com/de/album/697194953' },
+    ['spotify']
+  );
+  assert.deepEqual(missingMbKeys(state), ['qobuz'], 'only the open MB-only platform is worth a call');
+});
+
+test('missingMbKeys goes empty once every MB-only platform is known', () => {
+  const state = stateWith(
+    { spotify: 'https://open.spotify.com/album/2noRn2Aes5aoNVsU6iWThc', qobuz: 'https://www.qobuz.com/album/x/0724384960650' },
+    ['tidal']
+  );
+  assert.deepEqual(missingMbKeys(state), []);
+});
 
 test('mergeExactLinks adds unknown platforms and reports that it did', () => {
   const state = stateWith();

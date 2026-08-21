@@ -22,6 +22,21 @@ const CODES = {
   upc: { entityKind: 'album', fetchCode: fetchDeezerUpc, findLinks: findLinksByUpc },
 };
 
+// MusicBrainz is the ONLY keyless route to these three (ENDPOINTS.md:
+// Spotify has no keyless search at all, Tidal and Qobuz none that returns
+// an exact album). Every other platform is served by a direct search that
+// already ran before this stage, so these three alone decide whether one
+// more throttled MB lookup can still pay off. Widening this to every
+// platform key would leave it permanently unmet — Bandcamp and Amazon are
+// never in MB's release rels — and silently disable the early exit.
+export const MB_ONLY_KEYS = ['spotify', 'tidal', 'qobuz'];
+
+// The MB-only platforms this round has not landed yet. A source card
+// counts as landed: its pasted link outranks anything MB could add.
+export function missingMbKeys(state) {
+  return MB_ONLY_KEYS.filter((key) => !state.exact[key] && !state.sourceKeys.includes(key));
+}
+
 // Merge a {platformKey: url} map into state.exact. A source card keeps the
 // pasted link, and an already-known exact link is never overwritten — the
 // earlier stage had better provenance. → true when anything was added, so
@@ -61,7 +76,10 @@ export async function enrichByCode(codeKind, { state, gen, render, setPhase }) {
     if (!code || state[checkedKey] === code) return;
     state[checkedKey] = code;
     setPhase('Checking MusicBrainz for exact links');
-    const links = await cfg.findLinks(code);
+    // The album path spends a throttled MB call per release — tell it what
+    // is still open so it can stop once nothing is (the ISRC path is a
+    // single call and ignores the hint).
+    const links = await cfg.findLinks(code, missingMbKeys(state));
     if (gen !== state.generation) return;
     if (mergeExactLinks(state, links)) render();
   } catch { /* best effort — search links stay */ }

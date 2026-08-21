@@ -7,7 +7,7 @@ import {
   cleanTitle, splitDashTitle, looselyMatches, searchableTitle, parseFreeText,
   deezerCandidates, itunesCandidates, pickByArtist, strictTitleHits, artistCandidates,
   pickByName, pickMbArtist, mapUrlsToPlatforms, expandArtistAnchor, relsConfirmAnchor,
-  titlesOverlap, confirmByCatalog, probeNamesakes, namesakeChipLabel,
+  titlesOverlap, confirmByCatalog, probeNamesakes, namesakeChipLabel, unmetNeed,
 } from '../js/adapters.mjs';
 
 test('cleanTitle strips video noise', () => {
@@ -299,6 +299,24 @@ test('mapUrlsToPlatforms kind filter is opt-in', () => {
   // (regression guard for the ISRC/UPC callers).
   assert.match(mapUrlsToPlatforms(urls).spotify, /artist\/4tZwfgrHOc3mvqYlEYSvVi/);
   assert.deepEqual(mapUrlsToPlatforms([], 'artist'), {});
+});
+
+// The whole point of the UPC early exit: one throttled MB call is spent
+// only while something the caller asked for is still open.
+test('unmetNeed reports exactly the wanted keys a link map misses', () => {
+  const links = {
+    spotify: 'https://open.spotify.com/album/2noRn2Aes5aoNVsU6iWThc',
+    qobuz: 'https://www.qobuz.com/album/discovery/0724384960650',
+  };
+  assert.deepEqual(unmetNeed(['spotify', 'tidal', 'qobuz'], links), ['tidal']);
+  assert.deepEqual(unmetNeed(['spotify', 'qobuz'], links), [], 'everything wanted is covered');
+  // Platforms outside `need` never keep the cascade alive.
+  assert.deepEqual(unmetNeed([], links), []);
+  // Nothing found yet → everything stays open (first release lookup).
+  assert.deepEqual(unmetNeed(['spotify'], {}), ['spotify']);
+  // Defensive: a missing need or link map must not throw mid-cascade.
+  assert.deepEqual(unmetNeed(null, links), []);
+  assert.deepEqual(unmetNeed(['tidal'], null), ['tidal']);
 });
 
 test('itunesCandidates normalizes songs and albums, tolerates errors', () => {

@@ -374,6 +374,14 @@ export async function fetchDeezerUpc(albumId) {
   return /^\d{6,}$/.test(upc) ? upc : '';
 }
 
+// Which of the wanted platform keys a link map does not cover yet. Empty
+// → another release lookup can only hand us links we would discard, so
+// the caller stops there. Pure and exported for the unit tests: the
+// decision it encodes is worth one throttled MB call.
+export function unmetNeed(need, links) {
+  return (need || []).filter((key) => !links?.[key]);
+}
+
 // UPC → MusicBrainz release search → per-release URL relations → exact
 // album links on other platforms (Spotify/Tidal/Qobuz/Deezer verified for
 // Discovery, 2026-08-20). The search response carries no url-rels inline,
@@ -381,7 +389,12 @@ export async function fetchDeezerUpc(albumId) {
 // MB calls — that is the whole budget, don't raise it. Spotify's own upc:
 // search filter is measured dead (see ENDPOINTS.md) — this is the only
 // keyless path to an exact Spotify album link.
-export async function findLinksByUpc(upc) {
+//
+// `need` (the platform keys the caller is still missing) buys the budget
+// back: measured 2026-08-21 on barcode:724384960650, the second release
+// carried nothing the first one lacked. Omit it and every release is
+// looked up, exactly as before.
+export async function findLinksByUpc(upc, need = null) {
   if (!upc) return {};
   const data = await mbJson(`release/?query=${encodeURIComponent(`barcode:${upc}`)}&fmt=json&limit=2`);
   const urls = [];
@@ -390,6 +403,7 @@ export async function findLinksByUpc(upc) {
       const full = await mbJson(`release/${release.id}?inc=url-rels&fmt=json`);
       urls.push(...(full.relations || []).map((rel) => rel.url?.resource).filter(Boolean));
     } catch { /* one missing release must not kill the other */ }
+    if (need && !unmetNeed(need, mapUrlsToPlatforms(urls)).length) break;
   }
   return mapUrlsToPlatforms(urls);
 }
