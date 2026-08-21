@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import {
   cleanTitle, splitDashTitle, looselyMatches, searchableTitle, parseFreeText,
   deezerCandidates, itunesCandidates, pickByArtist, strictTitleHits, artistCandidates,
-  pickByName, pickMbArtist, mapUrlsToPlatforms,
+  pickByName, pickMbArtist, mapUrlsToPlatforms, expandArtistAnchor, relsConfirmAnchor,
+  titlesOverlap, confirmByCatalog,
 } from '../js/adapters.mjs';
 
 test('cleanTitle strips video noise', () => {
@@ -85,8 +86,8 @@ test('deezerCandidates normalizes artist rows', () => {
     { name: 'No Id No Link' },
   ] };
   assert.deepEqual(deezerCandidates(artists, 'artist'), [
-    { title: '', artist: 'Daft Punk', link: 'https://www.deezer.com/artist/27', id: '27', thumb: 'https://cdn.dzcdn.net/dp.jpg' },
-    { title: '', artist: 'Daft Funk Tribute', link: 'https://www.deezer.com/artist/28', id: '28', thumb: '' },
+    { title: '', artist: 'Daft Punk', link: 'https://www.deezer.com/artist/27', id: '27', thumb: 'https://cdn.dzcdn.net/dp.jpg', fans: 0 },
+    { title: '', artist: 'Daft Funk Tribute', link: 'https://www.deezer.com/artist/28', id: '28', thumb: '', fans: 0 },
   ]);
   // Track/album behavior is untouched by the artist lens.
   assert.deepEqual(deezerCandidates(artists, 'track'), []);
@@ -115,6 +116,27 @@ test('pickByName follows catalog rank with a loose match', () => {
   assert.equal(pickByName([], 'Daft Punk'), null);
 });
 
+test('pickByName prefers exact names and breaks ties by fan count', () => {
+  // Real shape of the GRETA case: Deezer ranks a 2-fan namesake first and
+  // the token-subset match would even accept "Greta Van Fleet".
+  const cands = [
+    { title: '', artist: 'Greta Van Fleet', link: 'a', id: '1', fans: 900000 },
+    { title: '', artist: 'Greta', link: 'b', id: '2', fans: 2 },
+    { title: '', artist: 'GRETA', link: 'c', id: '3', fans: 250 },
+  ];
+  assert.equal(pickByName(cands, 'GRETA')?.id, '3');
+  // Equal fan counts fall back to catalog rank (first wins).
+  const tie = [
+    { title: '', artist: 'Greta', link: 'b', id: '2', fans: 5 },
+    { title: '', artist: 'GRETA', link: 'c', id: '3', fans: 5 },
+  ];
+  assert.equal(pickByName(tie, 'greta')?.id, '2');
+  // Punctuation never blocks the exact path — normalize eats it.
+  assert.equal(pickByName([{ title: '', artist: 'Emerson, Lake & Palmer', link: 'd', id: '4' }], 'Emerson Lake Palmer')?.id, '4');
+  // No exact hit → loose match still works (iTunes rows carry no fans).
+  assert.equal(pickByName([{ title: '', artist: 'Tyler Childers and the Food Stamps', link: 'e', id: '5' }], 'Tyler Childers')?.id, '5');
+});
+
 test('pickMbArtist handles url-rels and name-search shapes', () => {
   const rels = { relations: [{ type: 'free streaming' }, { artist: { id: 'mbid-1', name: 'Daft Punk' } }] };
   assert.deepEqual(pickMbArtist(rels, 'Daft Punk'), { id: 'mbid-1', name: 'Daft Punk' });
@@ -127,6 +149,90 @@ test('pickMbArtist handles url-rels and name-search shapes', () => {
   assert.equal(pickMbArtist({ artists: [{ id: 'x', name: 'Daft Punk', score: 62 }] }, 'Daft Punk'), null);
   assert.equal(pickMbArtist({ artists: [{ id: 'x', name: 'Punk Floyd', score: 100 }] }, 'Daft Punk'), null);
   assert.equal(pickMbArtist({}, 'Daft Punk'), null);
+});
+
+test('titlesOverlap needs one strictly equal searchable title', () => {
+  const source = ['chaos im kopf', 'wetten dass', 'ganz schön high'];
+  assert.equal(titlesOverlap(source, ['ZEN', 'wetten dass', 'Explaining Men']), true);
+  // Bracketed noise is stripped before comparing.
+  assert.equal(titlesOverlap(source, ['Wetten Dass (Live)']), true);
+  // A subset match must NOT count — live shape of the wrong "Greta":
+  // casting-show covers share words but never whole searchable titles.
+  assert.equal(titlesOverlap(source, ['Mercy (aus "The Voice Kids") (Blind Audition Live)', 'Sk8er Boi']), false);
+  assert.equal(titlesOverlap([], ['ZEN']), false);
+  assert.equal(titlesOverlap(source, []), false);
+});
+
+test('confirmByCatalog proves candidates by shared tracks, never by popularity', async () => {
+  // Live shape of the GRETA case: the most popular exact namesake is a
+  // casting-show act; the real artist ranks second by fans.
+  const cands = [
+    { artist: 'Greta', link: 'wrong', id: '58203', fans: 876 },
+    { artist: 'GRETA', link: 'right', id: '184643867', fans: 250 },
+    { artist: 'Greta Van Fleet', link: 'gvf', id: '5674606', fans: 195636 },
+  ];
+  const tops = {
+    58203: ['Mercy (Blind Audition Live)', 'Sk8er Boi'],
+    184643867: ['ZEN', 'wetten dass', 'chaos im kopf'],
+  };
+  const probed = [];
+  const fetchTop = async (c) => { probed.push(c.id); return tops[c.id] || []; };
+  const hit = await confirmByCatalog(cands, 'GRETA', ['wetten dass', 'holidaze'], fetchTop);
+  assert.equal(hit?.link, 'right');
+  // Probes run in fan order over exact names only — Van Fleet never probed.
+  assert.deepEqual(probed, ['58203', '184643867']);
+  // No overlap anywhere → null, NOT the popular namesake.
+  assert.equal(await confirmByCatalog(cands, 'GRETA', ['auseinander'], fetchTop), null);
+  // A failing probe skips to the next candidate instead of aborting.
+  const flaky = async (c) => { if (c.id === '58203') throw new Error('down'); return tops[c.id] || []; };
+  assert.equal((await confirmByCatalog(cands, 'GRETA', ['zen'], flaky))?.link, 'right');
+});
+
+test('pickMbArtist name search needs exact equality, not a token subset', () => {
+  // Live shape: MB scores "Greta Keller" 100 for the query artist:"GRETA".
+  const search = { artists: [
+    { id: 'mbid-keller', name: 'Greta Keller', score: 100 },
+    { id: 'mbid-band', name: 'Greta', score: 91 },
+  ] };
+  assert.deepEqual(pickMbArtist(search, 'GRETA'), { id: 'mbid-band', name: 'Greta' });
+});
+
+test('pickMbArtist reads the multi-resource url response shape', () => {
+  const multi = { 'url-count': 2, urls: [
+    { relations: [] },
+    { relations: [{ artist: { id: 'mbid-dp', name: 'Daft Punk' } }] },
+  ] };
+  assert.deepEqual(pickMbArtist(multi, 'Daft Punk'), { id: 'mbid-dp', name: 'Daft Punk' });
+});
+
+test('expandArtistAnchor covers the URL forms MB actually stores', () => {
+  // Apple: MB holds slugless music.apple.com AND legacy itunes.apple.com
+  // forms under editor-chosen storefronts — cover pasted + us.
+  assert.deepEqual(expandArtistAnchor('https://music.apple.com/de/artist/greta/1646937897'), [
+    'https://music.apple.com/de/artist/1646937897',
+    'https://itunes.apple.com/de/artist/id1646937897',
+    'https://music.apple.com/us/artist/1646937897',
+    'https://itunes.apple.com/us/artist/id1646937897',
+  ]);
+  // A us link expands without duplicates.
+  assert.equal(expandArtistAnchor('https://music.apple.com/us/artist/5468295').length, 2);
+  assert.deepEqual(expandArtistAnchor('https://tidal.com/artist/8847'), [
+    'https://tidal.com/artist/8847',
+    'https://listen.tidal.com/artist/8847',
+  ]);
+  // Canonical single-form platforms pass through normalized.
+  assert.deepEqual(expandArtistAnchor('https://www.deezer.com/artist/27'), ['https://www.deezer.com/artist/27']);
+  // Non-artist and unparseable URLs stay untouched.
+  assert.deepEqual(expandArtistAnchor('https://example.com/x'), ['https://example.com/x']);
+});
+
+test('relsConfirmAnchor compares parsed entities, not URL strings', () => {
+  const rels = ['https://music.apple.com/fr/artist/1646937897', 'https://tidal.com/artist/1'];
+  // Storefront and slug differences must not block the confirmation.
+  assert.equal(relsConfirmAnchor(rels, ['https://music.apple.com/de/artist/greta/1646937897']), true);
+  assert.equal(relsConfirmAnchor(rels, ['https://www.deezer.com/artist/184643867']), false);
+  assert.equal(relsConfirmAnchor([], ['https://www.deezer.com/artist/184643867']), false);
+  assert.equal(relsConfirmAnchor(rels, []), false);
 });
 
 test('mapUrlsToPlatforms kind filter is opt-in', () => {

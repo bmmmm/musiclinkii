@@ -45,6 +45,7 @@ const state = {
   parsed: null,
   exact: {},        // platformKey → exact URL
   sourceKeys: [],   // platform keys covered by the pasted link itself
+  sourceTracks: [], // the source artist's top titles — identity probe for catalog picks
   isrc: '',         // from Deezer — unlocks the MusicBrainz link lookup
   isrcChecked: '',  // last ISRC already sent to MusicBrainz (1 req/s budget)
   isrcFrom: '',     // Deezer track id whose ISRC fetch already started
@@ -377,6 +378,7 @@ function resetResults({ keepSource = false } = {}) {
   if (!keepSource) {
     state.parsed = null;
     state.sourceKeys = [];
+    state.sourceTracks = [];
   }
   state.exact = {};
   for (const key of state.sourceKeys) state.exact[key] = state.parsed.url;
@@ -561,6 +563,7 @@ async function runLinkPipeline(q, gen) {
       el.thumb.hidden = false;
     }
     Object.assign(state.exact, meta.exact || {});
+    if (meta.tracks?.length) state.sourceTracks = meta.tracks;
     if (meta.isrc) state.isrc = meta.isrc;
     if (meta.upc) state.upc = meta.upc;
     for (const k of state.sourceKeys) state.exact[k] = q.parsed.url;
@@ -654,14 +657,18 @@ async function runLookup(gen) {
 async function runArtistLookup(gen, artist) {
   if (!artist) return;
   setPhase('Searching catalogs');
-  const found = await findArtistLinks({ artist }, region, state.sourceKeys);
+  const found = await findArtistLinks(
+    { artist, tracks: state.sourceTracks }, region, state.sourceKeys
+  );
   if (gen !== state.generation) return;
   applyFound(found);
   settlePending(['deezer', 'appleMusic'], gen);
   render();
   setPhase('Checking MusicBrainz for exact links');
-  const anchor = state.parsed?.url || state.exact.deezer || state.exact.appleMusic || '';
-  const links = await findLinksByArtist({ url: anchor, name: el.artist.value.trim() });
+  // Every known profile URL anchors the MB lookup — the pasted link AND
+  // the catalog matches. MB may hold any one of them (one request either way).
+  const anchorUrls = [state.parsed?.url, state.exact.deezer, state.exact.appleMusic];
+  const links = await findLinksByArtist({ urls: anchorUrls, name: el.artist.value.trim() });
   if (gen !== state.generation) return;
   for (const [key, url] of Object.entries(links)) {
     if (!state.exact[key] && !state.sourceKeys.includes(key)) state.exact[key] = url;
