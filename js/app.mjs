@@ -8,7 +8,7 @@ import { parseInput, looksLikeLink } from './parsers.mjs';
 import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
 import {
   fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist, parseFreeText,
-  fetchDeezerIsrc, findLinksByIsrc, fetchDeezerUpc, findLinksByUpc,
+  fetchDeezerIsrc, findLinksByIsrc, fetchDeezerUpc, findLinksByUpc, namesakeChipLabel,
 } from './adapters.mjs';
 import { cardModels, cardSignature } from './cards.mjs';
 import { iconSvg } from './icons.mjs';
@@ -23,6 +23,7 @@ const el = {
   track: $('#track'),
   thumb: $('#thumb'),
   artist: $('#artist-input'),
+  topsongs: $('#topsongs'),
   title: $('#title-input'),
   results: $('#results'),
   cards: $('#cards'),
@@ -53,6 +54,7 @@ const state = {
   upcChecked: '',   // last UPC already sent to MusicBrainz
   upcFrom: '',      // Deezer album id whose UPC fetch already started
   artistChips: null, // { title, names, itunesDown } — chips survive rounds
+  namesakeChips: null, // { artist, candidates, mode } — same-named artist choices
   kind: 'track',    // form/free-text kind, picked via the Track/Album/Artist toggle
   pending: new Set(), // platform keys whose exact-link stage has not settled
   generation: 0,    // invalidates in-flight fetches when input changes
@@ -143,10 +145,35 @@ function showArtistChips() {
   });
 }
 
+// Namesake chips: unlike showArtistChips, every candidate carries the
+// SAME name — the label disambiguates via each act's top track, and a
+// click must pin an IDENTITY, so the whole candidate object travels
+// through commitSearch as q.pick instead of re-committing a name.
+function showNamesakeChips() {
+  const chips = state.namesakeChips;
+  const list = chips && chips.artist === el.artist.value.trim()
+    ? chips.candidates.filter((c) => c.link !== state.exact.deezer)
+    : [];
+  el.suggest.replaceChildren();
+  el.suggest.hidden = !list.length;
+  if (!list.length) return;
+  el.suggest.append(chips.mode === 'auto' ? 'Not right? ' : 'Which one? ');
+  list.forEach((c, i) => {
+    if (i) el.suggest.append(' ');
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = namesakeChipLabel(c);
+    chip.addEventListener('click', () => commitFromPick(c));
+    el.suggest.appendChild(chip);
+  });
+}
+
 // Outcome line after a lookup round. Chips render on their own line, so
 // outcome and suggestion coexist.
 function updateOutcome(kind) {
-  showArtistChips();
+  if (kind === 'artist') showNamesakeChips();
+  else showArtistChips();
   if (!el.artist.value.trim() && el.title.value.trim()
       && kind !== 'artist' && kind !== 'playlist') {
     setStatus('Artist unknown — add it above for better matches.');
@@ -255,7 +282,17 @@ function syncCards(models) {
   }
 }
 
+// Top-track context under the artist field — display only, artist
+// sessions only. Typed artist searches never fetch sourceTracks, so the
+// line appears exactly when a pasted link vouches for the titles.
+function syncTopSongs() {
+  const show = currentKind() === 'artist' && state.sourceTracks.length > 0;
+  el.topsongs.hidden = !show;
+  el.topsongs.textContent = show ? `Top: ${state.sourceTracks.slice(0, 3).join(' · ')}` : '';
+}
+
 function render() {
+  syncTopSongs();
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   const models = cardModels(
     {
@@ -367,7 +404,9 @@ function queryText(q) {
 }
 
 function queryKey(q) {
-  return q.link ? `link:${q.link}` : `${q.kind}:${q.artist}\n${q.title}`;
+  // A pick carries the candidate id: two namesake chips share one name,
+  // and the running-guard must not swallow the second click as a repeat.
+  return q.link ? `link:${q.link}` : `${q.kind}:${q.artist}${q.pick ? `!${q.pick.id}` : ''}\n${q.title}`;
 }
 
 // --- Result state. resetResults touches results only — never the input
@@ -393,15 +432,24 @@ function resetResults({ keepSource = false } = {}) {
 
 // A manual artist/title edit means every found match may now be wrong:
 // invalidate in-flight lookups and drop everything except the source link
-// itself — the next commit re-derives matches for the new words.
+// itself — the next commit re-derives matches for the new words. The
+// status trio clears too: "3 exact matches found" must not outlive the
+// matches it counted (safe — every post-await status write in the
+// pipelines is generation-guarded, so no stale line can reappear).
 function invalidateMatches() {
   state.generation += 1;
   resetResults({ keepSource: Boolean(state.parsed) });
+  setStatus('');
+  setNote('');
+  setLine(el.suggest, '');
 }
 
 function hideTrack() {
   el.artist.value = '';
   el.title.value = '';
+  // resetAll never render()s, so the top-songs line needs its own clear.
+  el.topsongs.hidden = true;
+  el.topsongs.textContent = '';
   el.thumb.hidden = true;
   el.thumb.removeAttribute('src');
   el.track.hidden = true;
@@ -480,8 +528,16 @@ async function commitSearch(q) {
   setStatus('');
   setNote('');
   setLine(el.suggest, '');
+  // Chips describe the PREVIOUS query's alternatives — a new commit starts
+  // over (rounds within this commit re-create them via applyFound).
+  state.artistChips = null;
+  state.namesakeChips = null;
   try {
     if (q.link) {
+      // A pasted link dictates its own kind; the toggle must not carry a
+      // stale Artist/Album press into the next typed search.
+      state.kind = 'track';
+      syncKindToggle();
       resetResults();
       writeHash(q);
       if (!q.parsed.ok) {
@@ -509,7 +565,7 @@ async function commitSearch(q) {
       syncKindUi();
       seedPending(q);
       render();
-      await runLookup(gen);
+      await runLookup(gen, q);
     }
   } catch { /* every stage is best effort — search links stay */ }
   finally {
@@ -526,12 +582,24 @@ function commitFromFields() {
   commitSearch(fieldsQuery());
 }
 
-// "Next search": one click back to a clean slate — the only reset.
+// A namesake chip click: every candidate shares the name, so the commit
+// carries the chosen identity as q.pick — findArtistLinks pins it instead
+// of searching, and the MB fan-out anchors on the picked Deezer URL.
+function commitFromPick(candidate) {
+  commitSearch({ kind: 'artist', artist: candidate.name, title: '', origin: 'fields', pick: candidate });
+}
+
+// "Next search": one click back to a clean slate — the only reset. The
+// kind toggle is part of the slate: a sticky Artist press would silently
+// re-interpret the next typed "Artist - Title" as an artist query.
 function resetAll() {
   state.generation += 1; // invalidate anything in flight
   running = null;
   resetResults();
   state.artistChips = null;
+  state.namesakeChips = null;
+  state.kind = 'track';
+  syncKindToggle();
   el.input.value = '';
   hideTrack();
   setStatus('');
@@ -609,15 +677,24 @@ function applyFound(found) {
       itunesDown: Boolean(found.itunesDown),
     };
   }
+  // Namesake choices (artist kind only — findExactLinks never returns
+  // these). Keyed by the artist field so an edit self-invalidates them.
+  if (found.namesakeCandidates?.length) {
+    state.namesakeChips = {
+      artist: el.artist.value.trim(),
+      candidates: found.namesakeCandidates,
+      mode: found.namesakeMode,
+    };
+  }
 }
 
-async function runLookup(gen) {
+async function runLookup(gen, q) {
   const kind = currentKind();
   const artist = el.artist.value.trim();
   const title = el.title.value.trim();
   try {
     if (kind === 'artist') {
-      await runArtistLookup(gen, artist);
+      await runArtistLookup(gen, artist, q?.pick);
       return;
     }
     if (kind !== 'track' && kind !== 'album') return; // playlists: nothing to match
@@ -654,16 +731,19 @@ async function runLookup(gen) {
 // Artist pipeline: catalog artist search (Deezer + iTunes), then the
 // MusicBrainz artist fan-out. The pasted artist URL is the best anchor —
 // it IS the identity; a catalog match is only a ranked guess.
-async function runArtistLookup(gen, artist) {
+async function runArtistLookup(gen, artist, pick) {
   if (!artist) return;
   setPhase('Searching catalogs');
   const found = await findArtistLinks(
-    { artist, tracks: state.sourceTracks }, region, state.sourceKeys
+    { artist, tracks: state.sourceTracks, pick }, region, state.sourceKeys
   );
   if (gen !== state.generation) return;
   applyFound(found);
   settlePending(['deezer', 'appleMusic'], gen);
   render();
+  // Offer namesake choices now — the MB fan-out below takes seconds and
+  // must not delay a decision the user could already be making.
+  showNamesakeChips();
   setPhase('Checking MusicBrainz for exact links');
   // Every known profile URL anchors the MB lookup — the pasted link AND
   // the catalog matches. MB may hold any one of them (one request either way).

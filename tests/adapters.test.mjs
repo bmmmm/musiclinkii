@@ -7,7 +7,7 @@ import {
   cleanTitle, splitDashTitle, looselyMatches, searchableTitle, parseFreeText,
   deezerCandidates, itunesCandidates, pickByArtist, strictTitleHits, artistCandidates,
   pickByName, pickMbArtist, mapUrlsToPlatforms, expandArtistAnchor, relsConfirmAnchor,
-  titlesOverlap, confirmByCatalog,
+  titlesOverlap, confirmByCatalog, probeNamesakes, namesakeChipLabel,
 } from '../js/adapters.mjs';
 
 test('cleanTitle strips video noise', () => {
@@ -186,6 +186,57 @@ test('confirmByCatalog proves candidates by shared tracks, never by popularity',
   // A failing probe skips to the next candidate instead of aborting.
   const flaky = async (c) => { if (c.id === '58203') throw new Error('down'); return tops[c.id] || []; };
   assert.equal((await confirmByCatalog(cands, 'GRETA', ['zen'], flaky))?.link, 'right');
+});
+
+test('namesakeChipLabel disambiguates by top track, falls back to the bare name', () => {
+  assert.equal(namesakeChipLabel({ name: 'GRETA', track: 'wetten dass' }), 'GRETA — “wetten dass”');
+  assert.equal(namesakeChipLabel({ name: 'GRETA', track: '' }), 'GRETA');
+});
+
+test('probeNamesakes maps candidates to chips, capped, tolerant of failed probes', async () => {
+  const cands = [
+    { artist: 'Greta', link: 'a', id: '1', thumb: 't1' },
+    { artist: 'GRETA', link: 'b', id: '2', thumb: 't2' },
+    { artist: 'Greta', link: 'c', id: '3', thumb: '' },
+  ];
+  const fetchTop = async (c) => {
+    if (c.id === '2') return ['ZEN', 'wetten dass'];
+    throw new Error('down');
+  };
+  // Cap holds; a failed probe keeps the candidate with a bare-name chip.
+  assert.deepEqual(await probeNamesakes(cands, fetchTop, 2), [
+    { name: 'Greta', link: 'a', id: '1', thumb: 't1', track: '' },
+    { name: 'GRETA', link: 'b', id: '2', thumb: 't2', track: 'ZEN' },
+  ]);
+  assert.deepEqual(await probeNamesakes([], fetchTop), []);
+});
+
+test('confirmByCatalog reports every probe via onProbe without changing its verdict', async () => {
+  const cands = [
+    { artist: 'Greta', link: 'wrong', id: '58203', fans: 876 },
+    { artist: 'GRETA', link: 'right', id: '184643867', fans: 250 },
+  ];
+  const tops = { 58203: ['Mercy'], 184643867: ['ZEN', 'wetten dass'] };
+  const fetchTop = async (c) => tops[c.id] || [];
+  const probed = [];
+  const hit = await confirmByCatalog(cands, 'GRETA', ['wetten dass'], fetchTop, 4,
+    (cand, top) => probed.push({ id: cand.id, top }));
+  assert.equal(hit?.link, 'right');
+  // Probes arrive in fan order, including the one that proved out.
+  assert.deepEqual(probed, [
+    { id: '58203', top: ['Mercy'] },
+    { id: '184643867', top: ['ZEN', 'wetten dass'] },
+  ]);
+  // A fetch failure reports as an empty probe, not a skip — the chip row
+  // must still offer that candidate.
+  const flaky = async (c) => { if (c.id === '58203') throw new Error('down'); return tops[c.id]; };
+  const probed2 = [];
+  assert.equal(await confirmByCatalog(cands, 'GRETA', ['nomatch'], flaky, 4,
+    (cand, top) => probed2.push({ id: cand.id, top })), null);
+  assert.deepEqual(probed2, [
+    { id: '58203', top: [] },
+    { id: '184643867', top: ['ZEN', 'wetten dass'] },
+  ]);
 });
 
 test('pickMbArtist name search needs exact equality, not a token subset', () => {

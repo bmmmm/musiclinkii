@@ -221,6 +221,14 @@ h1 {
 
 .track-fields input:focus { border-color: var(--accent); }
 
+/* Top-track context under the artist field (artist sessions only). */
+#topsongs {
+  grid-column: 2;
+  margin: -0.15rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 #results { margin-top: 1.6rem; }
 
 .results-head {

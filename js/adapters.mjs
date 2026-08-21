@@ -492,14 +492,48 @@ export function titlesOverlap(a, b) {
 // One shared title proves the candidate; with a track list in hand an
 // unproven pick is a likely WRONG pick (live-verified: the most popular
 // "Greta" on Deezer is a casting-show act, not the pasted artist) — so
-// this returns null rather than falling back to popularity.
-export async function confirmByCatalog(cands, name, tracks, fetchTop, cap = 4) {
+// this returns null rather than falling back to popularity. onProbe hears
+// every attempt (candidate + its fetched titles, [] on a failed fetch):
+// when no candidate proves out, those probes ARE the namesake chips — the
+// caller gets them without a second fetch round.
+export async function confirmByCatalog(cands, name, tracks, fetchTop, cap = 4, onProbe) {
   for (const cand of exactNameCandidates(cands, name).slice(0, cap)) {
+    let top = [];
     try {
-      if (titlesOverlap(tracks, await fetchTop(cand))) return cand;
-    } catch { /* unreachable candidate — try the next */ }
+      top = await fetchTop(cand);
+    } catch { /* unreachable candidate — probe stays empty */ }
+    onProbe?.(cand, top);
+    if (titlesOverlap(tracks, top)) return cand;
   }
   return null;
+}
+
+// One namesake chip: the candidate's identity plus its best-known track
+// as the human-readable disambiguator (names collide, top tracks don't).
+const toNamesakeChip = (cand, top) => ({
+  name: cand.artist,
+  link: cand.link,
+  id: cand.id,
+  thumb: cand.thumb || '',
+  track: (top || [])[0] || '',
+});
+
+// Typed-search namesake probe: fetch each exact-name candidate's top
+// track in parallel for the "Not right?" chip row. A failed fetch keeps
+// the candidate with a bare-name chip — an unlabeled choice still beats
+// no choice. Callers pass an exactNameCandidates() list and gate on ≥2.
+export async function probeNamesakes(cands, fetchTop, cap = 4) {
+  return Promise.all((cands || []).slice(0, cap).map(async (cand) => {
+    let top = [];
+    try {
+      top = await fetchTop(cand);
+    } catch { /* bare-name chip */ }
+    return toNamesakeChip(cand, top);
+  }));
+}
+
+export function namesakeChipLabel(candidate) {
+  return candidate.track ? `${candidate.name} — “${candidate.track}”` : candidate.name;
 }
 
 // MB artist from any response shape: a single-resource URL lookup
@@ -628,28 +662,64 @@ const itunesTopTitles = (cand) =>
 // Artist analog of findExactLinks: Deezer + iTunes artist search in
 // parallel. With source tracks (link sessions) each catalog pick must be
 // PROVEN by a shared track title; without them (typed searches) the
-// popularity pick stands. iTunes probes are capped at 2 — its rate limit
-// is the scarce budget. → { deezer?, appleMusic?, canonicalArtist?, thumb? }
-export async function findArtistLinks({ artist, tracks = [] }, region, sourceKeys = []) {
+// popularity pick stands, and ≥2 exact namesakes become chips so the
+// user can pin the identity. A `pick` (a clicked namesake chip) replaces
+// the whole Deezer stage — the user IS the proof — and its top track
+// becomes the probe for the iTunes side, which must not keep guessing by
+// popularity once an identity is pinned. iTunes probes are capped at 2 —
+// its rate limit is the scarce budget.
+// → { deezer?, appleMusic?, canonicalArtist?, thumb?,
+//     namesakeCandidates?, namesakeMode? }
+export async function findArtistLinks({ artist, tracks = [], pick } = {}, region, sourceKeys = []) {
   if (!artist) return {};
+  // A pasted Deezer artist page already IS the identity — searching Deezer
+  // would only produce a result the source-key merge guard discards, or
+  // worse, "Which one?" chips for a question the link has answered.
+  const skipDeezer = Boolean(pick) || sourceKeys.includes('deezer');
   const [dz, it] = await Promise.allSettled([
-    deezerSearch('artist', artist),
+    skipDeezer ? null : deezerSearch('artist', artist),
     sourceKeys.includes('appleMusic') ? null : itunesSearch('artist', artist, region),
   ]);
   const out = {};
-  const dCands = dz.status === 'fulfilled' ? dz.value : [];
-  const d = tracks.length
-    ? await confirmByCatalog(dCands, artist, tracks, deezerTopTitles)
-    : pickByName(dCands, artist);
-  if (d) {
-    out.deezer = d.link;
-    out.canonicalArtist = d.artist;
-    out.thumb = d.thumb;
+  if (pick) {
+    out.deezer = pick.link;
+    out.canonicalArtist = pick.name;
+    out.thumb = pick.thumb;
+  } else if (!skipDeezer) {
+    const dCands = dz.status === 'fulfilled' ? dz.value : [];
+    if (tracks.length) {
+      const probed = [];
+      const d = await confirmByCatalog(dCands, artist, tracks, deezerTopTitles, 4,
+        (cand, top) => probed.push(toNamesakeChip(cand, top)));
+      if (d) {
+        out.deezer = d.link;
+        out.canonicalArtist = d.artist;
+        out.thumb = d.thumb;
+      } else if (probed.length >= 2) {
+        // Nothing proved out but several namesakes exist — the probes
+        // already carry each one's top track, so they become the chips.
+        out.namesakeCandidates = probed;
+        out.namesakeMode = 'unproven';
+      }
+    } else {
+      const d = pickByName(dCands, artist);
+      if (d) {
+        out.deezer = d.link;
+        out.canonicalArtist = d.artist;
+        out.thumb = d.thumb;
+      }
+      const dExact = exactNameCandidates(dCands, artist);
+      if (dExact.length >= 2) {
+        out.namesakeCandidates = await probeNamesakes(dExact, deezerTopTitles);
+        out.namesakeMode = 'auto';
+      }
+    }
   }
   const iCands = it.status === 'fulfilled' && it.value ? it.value : null;
+  const iProbe = tracks.length ? tracks : (pick?.track ? [pick.track] : []);
   const i = iCands
-    ? (tracks.length
-      ? await confirmByCatalog(iCands, artist, tracks, itunesTopTitles, 2)
+    ? (iProbe.length
+      ? await confirmByCatalog(iCands, artist, iProbe, itunesTopTitles, 2)
       : pickByName(iCands, artist))
     : null;
   if (i) {
