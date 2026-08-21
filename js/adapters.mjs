@@ -120,10 +120,12 @@ export function splitDashTitle(title) {
 
 // Free-text input ("Will Smith - Miami") → artist/title guess. The dash
 // split is a guess — the fields stay editable, so a wrong or reversed
-// split is one edit away.
-export function parseFreeText(raw) {
+// split is one edit away. Artist searches are one field and never split:
+// "Emerson, Lake & Palmer" must survive whole.
+export function parseFreeText(raw, kind = 'track') {
   const text = cleanTitle((raw || '').trim());
   if (!text) return null;
+  if (kind === 'artist') return { artist: text, title: '' };
   return splitDashTitle(text) || { artist: '', title: text };
 }
 
@@ -153,6 +155,14 @@ async function fromApple(parsed) {
 async function fromDeezer(parsed) {
   const data = await jsonp(`https://api.deezer.com/${parsed.kind}/${parsed.id}`);
   if (!data || data.error) throw new Error('Deezer lookup failed');
+  if (parsed.kind === 'artist') {
+    // Artist objects carry name/picture, not title/artist.name.
+    return meta({
+      artist: data.name || '',
+      thumb: data.picture_medium || '',
+      exact: data.link ? { deezer: data.link } : {},
+    });
+  }
   return meta({
     title: data.title || '',
     artist: data.artist?.name || '',
@@ -308,11 +318,15 @@ export function searchableTitle(title) {
 
 // Feed a list of URLs through our own parser and keep the first hit per
 // platform card. music.youtube.com links count for the YouTube Music card.
-export function mapUrlsToPlatforms(urls) {
+// wantKind is opt-in: the ISRC/UPC callers pass nothing (their rels are
+// already entity-scoped), the artist fan-out filters to artist pages so a
+// stray track/release rel can't land on an artist card.
+export function mapUrlsToPlatforms(urls, wantKind = '') {
   const out = {};
   for (const url of urls || []) {
     const parsed = parseInput(url);
     if (!parsed.ok) continue;
+    if (wantKind && parsed.kind !== wantKind) continue;
     const isYtMusic = parsed.platform === 'youtube' && parsed.meta?.music;
     const key = isYtMusic ? 'youtubeMusic' : parsed.platform;
     if (!out[key]) out[key] = isYtMusic ? `https://music.youtube.com/watch?v=${parsed.id}` : parsed.url;
@@ -376,6 +390,18 @@ export async function findLinksByIsrc(isrc) {
 
 export function deezerCandidates(data, kind = 'track') {
   const rows = Array.isArray(data?.data) ? data.data : [];
+  if (kind === 'artist') {
+    // Artist rows carry name/picture_medium and no title.
+    return rows
+      .map((r) => ({
+        title: '',
+        artist: r.name || '',
+        link: r.link || (r.id != null ? `https://www.deezer.com/artist/${r.id}` : ''),
+        id: r.id != null ? String(r.id) : '',
+        thumb: r.picture_medium || '',
+      }))
+      .filter((c) => c.artist && c.link);
+  }
   return rows
     .map((r) => ({
       title: r.title || '',
@@ -390,11 +416,36 @@ export function deezerCandidates(data, kind = 'track') {
 
 export function itunesCandidates(data, kind = 'track') {
   const rows = Array.isArray(data?.results) ? data.results : [];
+  if (kind === 'artist') {
+    // musicArtist rows: artistName/artistLinkUrl/artistId, no artwork.
+    return rows
+      .map((r) => ({ title: '', artist: r.artistName || '', link: r.artistLinkUrl || '', id: r.artistId != null ? String(r.artistId) : '', thumb: '' }))
+      .filter((c) => c.artist && c.link);
+  }
   return rows
     .map((r) => (kind === 'album'
       ? { title: r.collectionName || '', artist: r.artistName || '', link: r.collectionViewUrl || '', id: r.collectionId != null ? String(r.collectionId) : '', thumb: r.artworkUrl100 || '' }
       : { title: r.trackName || '', artist: r.artistName || '', link: r.trackViewUrl || '', id: r.trackId != null ? String(r.trackId) : '', thumb: r.artworkUrl100 || '' }))
     .filter((c) => c.title && c.link);
+}
+
+// First candidate whose name matches — the order of `cands` is the
+// catalog's own relevance ranking (artist-kind analog of pickByArtist).
+export function pickByName(cands, name) {
+  return (cands || []).find((c) => looselyMatches(c.artist, name)) || null;
+}
+
+// MB artist from either response shape: a URL-relations lookup
+// ({ relations: [{ artist }] }) or an artist name search ({ artists }).
+// Name-search hits must score high AND loosely match — MB's search is
+// fuzzy enough to rank tribute acts for a plain name query.
+export function pickMbArtist(json, name) {
+  const fromRels = (json?.relations || []).map((rel) => rel.artist).find(Boolean);
+  if (fromRels?.id) return { id: fromRels.id, name: fromRels.name || '' };
+  const hit = (json?.artists || []).find(
+    (a) => a?.id && Number(a.score) >= 90 && looselyMatches(a.name, name)
+  );
+  return hit ? { id: hit.id, name: hit.name || '' } : null;
 }
 
 // First candidate whose title fits and whose artist matches — the order of
@@ -432,7 +483,7 @@ export function artistCandidates(dCands, iCands, qTitle, limit = 4) {
 // Plain queries — Deezer's quoted artist:"…" track:"…" syntax returns
 // empty result sets for many valid tracks (verified live).
 async function deezerSearch(kind, query) {
-  const route = kind === 'album' ? 'search/album' : 'search';
+  const route = kind === 'album' ? 'search/album' : kind === 'artist' ? 'search/artist' : 'search';
   const data = await jsonp(`https://api.deezer.com/${route}?q=${encodeURIComponent(query)}&limit=10`);
   return deezerCandidates(data, kind);
 }
@@ -446,7 +497,7 @@ const ITUNES_COOLDOWN_MS = 60_000;
 
 async function itunesSearch(kind, term, region) {
   if (Date.now() < itunesBlockedUntil) return null;
-  const entity = kind === 'album' ? 'album' : 'song';
+  const entity = kind === 'album' ? 'album' : kind === 'artist' ? 'musicArtist' : 'song';
   try {
     const data = await getJson(
       `https://itunes.apple.com/search?term=${encodeURIComponent(term)}` +
@@ -493,6 +544,59 @@ async function resolveTitleOnly(kind, title, region) {
     artistCandidates: artistCandidates(dCands, iCands, qTitle),
     itunesDown: iCands === null,
   };
+}
+
+// Artist analog of findExactLinks: Deezer + iTunes artist search in
+// parallel, loose name match against each catalog's own ranking.
+// → { deezer?, appleMusic?, canonicalArtist?, thumb? }
+export async function findArtistLinks({ artist }, region, sourceKeys = []) {
+  if (!artist) return {};
+  const [dz, it] = await Promise.allSettled([
+    deezerSearch('artist', artist),
+    sourceKeys.includes('appleMusic') ? null : itunesSearch('artist', artist, region),
+  ]);
+  const out = {};
+  const d = dz.status === 'fulfilled' ? pickByName(dz.value, artist) : null;
+  if (d) {
+    out.deezer = d.link;
+    out.canonicalArtist = d.artist;
+    out.thumb = d.thumb;
+  }
+  const i = it.status === 'fulfilled' && it.value ? pickByName(it.value, artist) : null;
+  if (i) {
+    out.appleMusic = i.link;
+    if (!out.canonicalArtist) out.canonicalArtist = i.artist;
+  }
+  return out;
+}
+
+// Artist links via MusicBrainz URL relations. Anchor-first: a known
+// streaming-profile URL identifies the artist exactly (same url/?resource
+// route fromTidal uses, live-verified); the name search is only the
+// fallback and gated hard in pickMbArtist. The url lookup carries artist
+// stubs WITHOUT their own url-rels, so the second artist/{mbid} lookup is
+// mandatory — 2-3 spaced MB calls total, all through mbChain.
+export async function findLinksByArtist({ url, name }) {
+  let found = null;
+  if (url) {
+    try {
+      found = pickMbArtist(
+        await mbJson(`url/?resource=${encodeURIComponent(url)}&inc=artist-rels&fmt=json`), name
+      );
+    } catch { /* fall through to the name search */ }
+  }
+  if (!found && name) {
+    try {
+      const query = `artist:"${name.replace(/"/g, '')}"`;
+      found = pickMbArtist(
+        await mbJson(`artist/?query=${encodeURIComponent(query)}&fmt=json&limit=3`), name
+      );
+    } catch { /* best effort */ }
+  }
+  if (!found) return {};
+  const full = await mbJson(`artist/${found.id}?inc=url-rels&fmt=json`);
+  const urls = (full.relations || []).map((rel) => rel.url?.resource).filter(Boolean);
+  return mapUrlsToPlatforms(urls, 'artist');
 }
 
 export async function findExactLinks({ artist, title, kind = 'track' }, region, sourceKeys = []) {

@@ -124,6 +124,36 @@ test('models follow PLATFORMS order', () => {
   assert.deepEqual(models.map((m) => m.key), PLATFORMS.map((p) => p.key));
 });
 
+test('pending flags cards whose stage has not settled', () => {
+  const st = {
+    exact: { deezer: 'https://www.deezer.com/track/3135556' }, sourceKeys: [], kind: 'track',
+    pending: new Set(['spotify', 'tidal', 'deezer']),
+  };
+  const models = cardModels(st, { artist: 'Mine', title: 'Ohne dich' }, DE, false);
+  assert.equal(byKey(models, 'spotify').pending, true);
+  assert.equal(byKey(models, 'tidal').pending, true);
+  // An exact link settles the card no matter what the set says.
+  assert.equal(byKey(models, 'deezer').pending, false);
+  assert.equal(byKey(models, 'youtube').pending, false);
+  // An array works too; absent means nothing pending (back-compat).
+  const viaArray = cardModels({ ...st, pending: ['qobuz'] }, { artist: 'a', title: 'b' }, DE, false);
+  assert.equal(byKey(viaArray, 'qobuz').pending, true);
+  const absent = cardModels({ exact: {}, sourceKeys: [], kind: 'track' }, { artist: 'a', title: 'b' }, DE, false);
+  assert.ok(absent.every((m) => m.pending === false));
+});
+
+test('artist kind renders artist search routes on every card', () => {
+  const models = cardModels(
+    { exact: {}, sourceKeys: [], kind: 'artist' },
+    { artist: 'Daft Punk', title: '' }, DE, false
+  );
+  assert.equal(models.length, PLATFORMS.length);
+  assert.equal(byKey(models, 'spotify').url, `https://open.spotify.com/search/${encodeURIComponent('artist:"Daft Punk"')}`);
+  assert.equal(byKey(models, 'tidal').url, 'https://tidal.com/search/artists?q=Daft%20Punk');
+  assert.equal(byKey(models, 'soundcloud').url, 'https://soundcloud.com/search/people?q=Daft%20Punk');
+  assert.equal(byKey(models, 'bandcamp').url, 'https://bandcamp.com/search?q=Daft%20Punk&item_type=b');
+});
+
 test('cardSignature changes when url, badge or embed theme changes', () => {
   const st = { exact: { spotify: 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i' }, sourceKeys: ['spotify'], kind: 'track' };
   const fields = { artist: 'Le Crime', title: 'Kitchen' };
@@ -141,4 +171,9 @@ test('cardSignature changes when url, badge or embed theme changes', () => {
   const plain = byKey(cardModels({ exact: {}, sourceKeys: [], kind: 'album' }, { artist: 'Daft Punk', title: 'Discovery' }, DE, false), 'youtubeMusic');
   const viaUpc = byKey(cardModels({ exact: {}, sourceKeys: [], kind: 'album', upc: '724384960650' }, { artist: 'Daft Punk', title: 'Discovery' }, DE, false), 'youtubeMusic');
   assert.notEqual(cardSignature(plain), cardSignature(viaUpc));
+  // The pending flag is part of the signature — the renderer must rebuild
+  // the card when the spinner appears or disappears.
+  const settled = byKey(cardModels({ exact: {}, sourceKeys: [], kind: 'track' }, { artist: 'a', title: 'b' }, DE, false), 'tidal');
+  const spinning = byKey(cardModels({ exact: {}, sourceKeys: [], kind: 'track', pending: ['tidal'] }, { artist: 'a', title: 'b' }, DE, false), 'tidal');
+  assert.notEqual(cardSignature(settled), cardSignature(spinning));
 });

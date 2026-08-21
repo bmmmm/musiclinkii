@@ -48,7 +48,10 @@ use it.
 **No link at hand?** Typing “Artist - Title” (or just a title) into the
 input runs the same pipeline from text: search links for every platform,
 plus catalog matches where Deezer/iTunes agree. Ambiguous titles get
-one-click artist chips instead of a silent guess.
+one-click artist chips instead of a silent guess. The form below the
+input switches between **Track / Album / Artist** searches — artist
+searches match via the Deezer/iTunes artist catalogs and MusicBrainz
+artist URL relations.
 
 Short links (`spotify.link`, `link.deezer.com`, `on.soundcloud.com`) can't be
 expanded client-side — open them once and paste the full URL instead.

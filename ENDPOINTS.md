@@ -16,6 +16,9 @@ code location. All statuses were verified empirically on the date given
 | `api.deezer.com/album/{id}` (JSONP) | Deezer album → title, artist, **UPC/barcode**, cover | none | JSONP | 2026-08-20 | `js/adapters.mjs` `fromDeezer`, `fetchDeezerUpc` | same as above |
 | `api.deezer.com/search?q=` (JSONP) | exact Deezer track match for enrichment. **Plain query only** — quoted `artist:"x" track:"y"` returns empty result sets on the API (web search is fine with it) | none | JSONP | 2026-08-20 | `js/adapters.mjs` `deezerSearch` | same as above |
 | `api.deezer.com/search/album?q=` (JSONP) | exact Deezer album match for enrichment (plain "Discovery" ranks Daft Punk #1, verified) | none | JSONP | 2026-08-20 | `js/adapters.mjs` `deezerSearch` | same as above |
+| `api.deezer.com/search/artist?q=` (JSONP) | exact Deezer artist match for artist searches (rows carry `name`/`picture_medium`/`link`) | none | JSONP | untested live — verify field names on first breakage | `js/adapters.mjs` `deezerSearch`, `deezerCandidates` | same as above |
+| `itunes.apple.com/search?term=&media=music&entity=musicArtist` | exact Apple Music artist match (rows carry `artistName`/`artistLinkUrl`/`artistId`) | none | `*` | untested live — verify field names on first breakage | `js/adapters.mjs` `itunesSearch`, `itunesCandidates` | same as the iTunes rows above (shared 403 cooldown) |
+| `musicbrainz.org/ws/2/url/?resource=&inc=artist-rels` → `artist/{mbid}?inc=url-rels` (fallback: `artist/?query=artist:"…"`) | artist streaming-profile URL (Deezer/Apple match or the pasted link) → MB artist → URL relations → exact artist links on other platforms. Anchor-first: the URL identifies the artist, the name search is fuzzy and gated (score ≥ 90 + loose match). The url lookup carries **no url-rels on the artist stub** — the second lookup is mandatory (same constraint as the barcode cascade); 2–3 spaced MB calls | none | `*` | url-route verified 2026-08-20 (`fromTidal`); artist fan-out untested live | `js/adapters.mjs` `findLinksByArtist`, `pickMbArtist`; `js/app.mjs` `runArtistLookup` | same MB notes as above |
 | `www.youtube.com/oembed?url=` | YouTube video → title ("Artist - Title"), channel ("X - Topic") | none | origin reflection | 2026-08-19 | `js/adapters.mjs` `fromYoutube` | oEmbed is undocumented by Google; fallback: [noembed.com](https://noembed.com) (CORS `*`) |
 | `open.spotify.com/oembed?url=` | Spotify link → title only (**no artist field**), thumbnail | none | `*` | 2026-08-19 | `js/adapters.mjs` `fromSpotify` | [Spotify oEmbed docs](https://developer.spotify.com/documentation/embeds/reference/oembed) |
 | `musicbrainz.org/ws/2/url/?resource=` + `/recording/{id}` or `/release/{id}` | Tidal fallback: URL relation → recording (tracks) / release (albums, verified: album 1550545 → "Discovery") / artist via `inc=artist-rels` (artist pages, verified: artist/8847 → "Daft Punk") → artist credits | none (UA not settable from browsers) | `*` | 2026-08-20 | `js/adapters.mjs` `fromTidal` | [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API), rate ~1 req/s, 503 on excess. The queried path must keep the pasted entity kind — `track/{id}` with an artist/video id is a numeric-collision lottery |
@@ -98,7 +101,8 @@ natively. Tests: `tests/parsers.test.mjs`.
 the pre-path token has no TLD-shaped last dot-label) is treated as an
 "Artist - Title" search — `parseFreeText` (`js/adapters.mjs`) splits at
 the first spaced dash, the normal enrich pipeline runs, and `#l=` carries
-the text just like a link. Dotted band names ("N.W.A", "R.E.M.") stay
+the text just like a link. With the **Artist** kind selected the text is
+never dash-split — the whole input is the artist name. Dotted band names ("N.W.A", "R.E.M.") stay
 text because their last label is a single letter; a space-free dotted
 title like "Wow.Wow" is a known accepted miss (treated as a link).
 
@@ -128,4 +132,5 @@ title like "Wow.Wow" is a known accepted miss (treated as a link).
 
 `#l={encodeURIComponent(pasted link)}` in the fragment — parsed on load
 (`js/app.mjs`), built by `shareHashFor`/`linkFromHash` in `js/links.mjs`.
-Fragment-only by design: it never reaches a server.
+Non-track searches append `&k={album|artist}` so a shared search keeps
+its kind. Fragment-only by design: it never reaches a server.

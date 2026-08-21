@@ -170,6 +170,10 @@ test('share hash carries a non-track search kind', () => {
   // separator stays unambiguous.
   const amp = shareHashFor('Simon & Garfunkel - America', 'album');
   assert.deepEqual(linkFromHash(amp), { link: 'Simon & Garfunkel - America', kind: 'album' });
+  // Artist searches share the same mechanism.
+  const artist = shareHashFor('Daft Punk', 'artist');
+  assert.equal(artist, '#l=Daft%20Punk&k=artist');
+  assert.deepEqual(linkFromHash(artist), { link: 'Daft Punk', kind: 'artist' });
 });
 
 test('buildQuery joins and trims', () => {

@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// UI orchestration: paste → parse → fetch metadata → render cards.
+// UI orchestration around ONE commit path: pasted link, free text and the
+// artist/title form all land in commitSearch(), which owns the generation,
+// the result reset, the surface sync, the share hash and the lookup
+// pipeline. Typing never triggers lookups; "Next search" is the only reset.
 
 import { parseInput, looksLikeLink } from './parsers.mjs';
-import { regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
+import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
 import {
-  fetchMetadata, findExactLinks, parseFreeText,
+  fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist, parseFreeText,
   fetchDeezerIsrc, findLinksByIsrc, fetchDeezerUpc, findLinksByUpc,
 } from './adapters.mjs';
 import { cardModels, cardSignature } from './cards.mjs';
@@ -15,6 +18,8 @@ const $ = (sel) => document.querySelector(sel);
 const el = {
   input: $('#link-input'),
   status: $('#status'),
+  note: $('#note'),
+  suggest: $('#suggest'),
   track: $('#track'),
   thumb: $('#thumb'),
   artist: $('#artist-input'),
@@ -25,7 +30,6 @@ const el = {
   copyMeta: $('#copy-meta'),
   share: $('#share'),
   nextLink: $('#next-link'),
-  spinner: $('#busy'),
   go: $('#go'),
   openSearch: $('#open-search'),
   formSearch: $('#form-search'),
@@ -34,6 +38,8 @@ const el = {
 };
 
 const region = regionFromLocale(navigator.language);
+
+const KINDS = ['track', 'album', 'artist'];
 
 const state = {
   parsed: null,
@@ -45,142 +51,112 @@ const state = {
   upc: '',          // from Deezer album — unlocks the MusicBrainz barcode lookup
   upcChecked: '',   // last UPC already sent to MusicBrainz
   upcFrom: '',      // Deezer album id whose UPC fetch already started
-  artistChips: null, // { title, names, picked, itunesDown } — chips survive rounds
-  searchKind: 'track', // form/free-text kind, picked via the Track/Album toggle
+  artistChips: null, // { title, names, itunesDown } — chips survive rounds
+  kind: 'track',    // form/free-text kind, picked via the Track/Album/Artist toggle
+  pending: new Set(), // platform keys whose exact-link stage has not settled
   generation: 0,    // invalidates in-flight fetches when input changes
 };
 
 // The entity kind of the current session — a parsed link dictates it,
-// free text and the form follow the Track/Album toggle.
-const currentKind = () => state.parsed?.kind || state.searchKind;
+// free text and the form follow the kind toggle.
+const currentKind = () => state.parsed?.kind || state.kind;
 
-// The title field doubles as the album field — its label must follow the
-// session kind (a pasted album link overrides the form toggle).
+// The title field doubles as the album field — its label follows the
+// session kind, and artist searches need no title at all.
 function syncKindUi() {
-  const label = currentKind() === 'album' ? 'Album' : 'Title';
+  const kind = currentKind();
+  const artistOnly = kind === 'artist';
+  el.titleLabel.hidden = artistOnly;
+  el.title.hidden = artistOnly;
+  const label = kind === 'album' ? 'Album' : 'Title';
   el.titleLabel.textContent = label;
   el.title.placeholder = label;
 }
 
+function syncKindToggle() {
+  for (const b of el.kindToggle.querySelectorAll('.kind-btn')) {
+    b.setAttribute('aria-pressed', String(b.dataset.kind === state.kind));
+  }
+}
+
+// --- Status lines: one owner each, no cross-guards. #status carries the
+// pipeline phase and outcome, #note source caveats, #suggest the chips.
+function setLine(node, text, tone = 'info') {
+  node.textContent = text || '';
+  node.dataset.tone = tone;
+  node.hidden = !text;
+  delete node.dataset.busy;
+}
+
 function setStatus(text, tone = 'info') {
-  el.status.textContent = text || '';
-  el.status.dataset.tone = tone;
-  el.status.hidden = !text;
-  delete el.status.dataset.busy;
+  setLine(el.status, text, tone);
 }
 
-// Activity spinner in the input field: a counter, not a flag — metadata
-// fetch and enrich rounds overlap, and the spinner must outlive all of
-// them. While busy, the magnifier yields its spot to the spinner.
-let busyCount = 0;
-function setBusy(on) {
-  busyCount = Math.max(0, busyCount + (on ? 1 : -1));
-  const busy = busyCount > 0;
-  el.spinner.hidden = !busy;
-  el.go.hidden = busy;
-  if (!busy) delete el.status.dataset.busy;
+function setNote(text) {
+  setLine(el.note, text, 'warn');
 }
 
-// Progress line for a lookup phase, with animated dots. Warn notes and
-// artist chips carry decisions the user must see — never cover them.
+// Progress line for a lookup phase, with animated dots. Always writes —
+// warnings and chips live on their own lines.
 function setPhase(text) {
-  if (!el.status.hidden
-      && (el.status.dataset.tone === 'warn' || el.status.querySelector('.chip'))) return;
-  setStatus(text, 'info');
+  setStatus(text);
   el.status.dataset.busy = '1';
+}
+
+// Phase lines are transient: if one is still standing when the pipeline
+// ends (error, early return), drop it — outcomes write their own line.
+function clearPhase() {
+  if (el.status.dataset.busy) setStatus('');
 }
 
 // Title-only lookups on an ambiguous title ("Cooked") can't know which
 // artist the pasted item belongs to — offer catalog candidates as
-// one-click chips. state.artistChips is keyed by the title so a later
-// enrich round WITHOUT candidates (e.g. after the auto-artist fill) can't
-// wipe fresh chips, and a title edit invalidates them implicitly.
-// Clicking runs the normal manual-edit path (invalidate + re-enrich), so
-// the full match cascade follows.
+// one-click chips on their own line. state.artistChips is keyed by the
+// title so a later round WITHOUT candidates can't wipe fresh chips, and a
+// title edit invalidates them implicitly. A chip click is a normal form
+// commit, so the full match cascade follows.
 function showArtistChips() {
   const chips = state.artistChips;
-  if (!chips || chips.title !== el.title.value.trim()) return false;
-  // Hide whoever is currently in the field — chips.picked only feeds the
-  // prefix wording, so a manual edit re-offers the previously picked name.
   const current = el.artist.value.trim();
-  const names = chips.names.filter((n) => n !== current);
-  if (!names.length) return false;
-  el.status.textContent = '';
-  el.status.dataset.tone = 'info';
-  const prefix = chips.picked || el.artist.value.trim()
+  const names = chips && chips.title === el.title.value.trim()
+    ? chips.names.filter((n) => n !== current)
+    : [];
+  el.suggest.replaceChildren();
+  el.suggest.hidden = !names.length;
+  if (!names.length) return;
+  const prefix = current
     ? 'Not right? '
     : (chips.itunesDown ? 'Apple Music is rate-limiting — pick the artist: ' : 'Which artist? ');
-  el.status.append(prefix);
+  el.suggest.append(prefix);
   names.forEach((name, i) => {
-    if (i) el.status.append(' ');
+    if (i) el.suggest.append(' ');
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'chip';
     chip.textContent = name;
     chip.addEventListener('click', () => {
-      state.artistChips.picked = name;
       el.artist.value = name;
-      el.artist.dispatchEvent(new Event('input', { bubbles: true }));
-      // A chip click is a deliberate pick — the chips are spent, clear
-      // them so the search phase can show, then commit right away.
-      setStatus('');
-      runFieldSearch();
+      commitFromFields();
     });
-    el.status.appendChild(chip);
+    el.suggest.appendChild(chip);
   });
-  el.status.hidden = false;
-  return true;
 }
 
-// Status line after an enrich round: never clobber a warn note (Qobuz,
-// Bandcamp, SoundCloud explain themselves there), prefer chips, else be
-// honest about a missing artist — except for artist/playlist links, where
-// no artist resolution exists by design.
-function updateStatusLine(kind) {
-  if (!el.status.hidden && el.status.dataset.tone === 'warn') return;
-  if (showArtistChips()) return;
+// Outcome line after a lookup round. Chips render on their own line, so
+// outcome and suggestion coexist.
+function updateOutcome(kind) {
+  showArtistChips();
   if (!el.artist.value.trim() && el.title.value.trim()
       && kind !== 'artist' && kind !== 'playlist') {
-    setStatus('Artist unknown — add it above for better matches.', 'info');
+    setStatus('Artist unknown — add it above for better matches.');
     return;
   }
-  // Round finished without a decision to surface — report the outcome.
   const matches = Object.keys(state.exact).filter((k) => !state.sourceKeys.includes(k)).length;
   if (matches) {
-    setStatus(`${matches} exact ${matches === 1 ? 'match' : 'matches'} found — the other cards open searches.`, 'info');
-  } else if (el.title.value.trim() && kind !== 'artist' && kind !== 'playlist') {
-    setStatus('No exact matches — every card opens a search.', 'info');
+    setStatus(`${matches} exact ${matches === 1 ? 'match' : 'matches'} found — the other cards open searches.`);
+  } else if ((el.title.value.trim() || kind === 'artist') && kind !== 'playlist') {
+    setStatus('No exact matches — every card opens a search.');
   }
-}
-
-function debounce(fn, ms) {
-  let timer;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
-}
-
-// Debounce whose wait already counts as busy: the spinner turns on with
-// the first call ("preparing requests") and stays on through the run —
-// the run takes its own busy hold before the wait hold is released, so
-// back-to-back rounds never flicker.
-function debounceBusy(fn, ms) {
-  let timer;
-  let scheduled = false;
-  return (...args) => {
-    clearTimeout(timer);
-    if (!scheduled) {
-      scheduled = true;
-      setBusy(true);
-    }
-    timer = setTimeout(async () => {
-      scheduled = false;
-      setBusy(true);
-      setBusy(false);
-      try { await fn(...args); } finally { setBusy(false); }
-    }, ms);
-  };
 }
 
 // All values land in the DOM via createElement/textContent/properties —
@@ -191,6 +167,7 @@ function buildCard(m) {
   card.className = 'card';
   card.dataset.platform = m.key;
   card.dataset.sig = cardSignature(m);
+  if (m.pending) card.dataset.pending = '1';
 
   const row = document.createElement('div');
   row.className = 'card-row';
@@ -280,7 +257,10 @@ function syncCards(models) {
 function render() {
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   const models = cardModels(
-    { exact: state.exact, sourceKeys: state.sourceKeys, kind: currentKind(), isrc: state.isrc, upc: state.upc },
+    {
+      exact: state.exact, sourceKeys: state.sourceKeys, kind: currentKind(),
+      isrc: state.isrc, upc: state.upc, pending: state.pending,
+    },
     { artist: el.artist.value, title: el.title.value },
     region, dark
   );
@@ -320,7 +300,7 @@ async function copyText(text, button) {
       setTimeout(() => { button.textContent = old; }, 1200);
     }
   } catch {
-    setStatus('Clipboard unavailable — copy the link manually.', 'warn');
+    setNote('Clipboard unavailable — copy the link manually.');
   }
 }
 
@@ -357,60 +337,338 @@ el.share.addEventListener('click', async () => {
   copyText(url, el.share);
 });
 
-const enrich = debounceBusy(async () => {
-  const gen = state.generation;
+// --- Query model: what a commit is made of. A query is either a link
+// ({ link, parsed, origin }) or a structured search ({ kind, artist,
+// title, origin }); origin says which surface committed it.
+
+function inputQuery() {
+  const raw = el.input.value.trim();
+  if (!raw) return null;
+  if (looksLikeLink(raw)) return { link: raw, parsed: parseInput(raw), origin: 'input' };
+  const parts = parseFreeText(raw, state.kind);
+  if (!parts) return null;
+  return { kind: state.kind, artist: parts.artist, title: parts.title, origin: 'input' };
+}
+
+function fieldsQuery() {
+  const kind = currentKind();
   const artist = el.artist.value.trim();
-  const title = el.title.value.trim();
-  if (!title) return;
-  setPhase('Searching catalogs');
+  const title = kind === 'artist' ? '' : el.title.value.trim();
+  if (!artist && !title) return null;
+  return { kind, artist, title, origin: 'fields' };
+}
+
+// Canonical text for a structured query — what the main input and the
+// share hash carry.
+function queryText(q) {
+  if (q.kind === 'artist') return q.artist;
+  return [q.artist, q.title].filter(Boolean).join(' - ');
+}
+
+function queryKey(q) {
+  return q.link ? `link:${q.link}` : `${q.kind}:${q.artist}\n${q.title}`;
+}
+
+// --- Result state. resetResults touches results only — never the input
+// surfaces; keepSource preserves a link session's own cards through a
+// fields refinement. artistChips survive on purpose: they describe the
+// TITLE and self-invalidate when it changes.
+function resetResults({ keepSource = false } = {}) {
+  if (!keepSource) {
+    state.parsed = null;
+    state.sourceKeys = [];
+  }
+  state.exact = {};
+  for (const key of state.sourceKeys) state.exact[key] = state.parsed.url;
+  state.isrc = '';
+  state.isrcChecked = '';
+  state.isrcFrom = '';
+  state.upc = '';
+  state.upcChecked = '';
+  state.upcFrom = '';
+  state.pending = new Set();
+}
+
+// A manual artist/title edit means every found match may now be wrong:
+// invalidate in-flight lookups and drop everything except the source link
+// itself — the next commit re-derives matches for the new words.
+function invalidateMatches() {
+  state.generation += 1;
+  resetResults({ keepSource: Boolean(state.parsed) });
+}
+
+function hideTrack() {
+  el.artist.value = '';
+  el.title.value = '';
+  el.thumb.hidden = true;
+  el.thumb.removeAttribute('src');
+  el.track.hidden = true;
+  el.kindToggle.hidden = false;
+  el.openSearch.hidden = false;
+}
+
+// Keep both input surfaces telling the same story. A fields commit inside
+// a link session keeps the pasted link in the main input (and its hash) —
+// the source card must stay explicable.
+function syncSurfaces(q) {
+  if (q.link) {
+    el.input.value = q.link;
+    el.artist.value = '';
+    el.title.value = '';
+    el.kindToggle.hidden = true; // the parsed link dictates the kind
+  } else {
+    el.artist.value = q.artist;
+    el.title.value = q.title;
+    if (!state.parsed) el.input.value = queryText(q);
+    el.kindToggle.hidden = Boolean(state.parsed);
+  }
+  if (q.link || !state.parsed) {
+    el.thumb.hidden = true;
+    el.thumb.removeAttribute('src');
+  }
+  el.track.hidden = false;
+  el.openSearch.hidden = true;
+}
+
+// The permalink always mirrors the committed query; only a link that
+// failed to parse gets none. A fields commit inside a link session keeps
+// the link hash it already has.
+function writeHash(q) {
+  if (!q.link && state.parsed) return;
+  const hash = q.link
+    ? (q.parsed.ok ? shareHashFor(q.link) : '')
+    : shareHashFor(queryText(q), q.kind);
+  history.replaceState(null, '', location.pathname + location.search + hash);
+}
+
+// --- Per-card pending: "an exact link for this card may still arrive".
+// Seeded per commit (only when a lookup will actually run), narrowed as
+// stages settle, keyed to the generation so a stale pipeline can never
+// mutate a newer commit's set. resetResults re-creates the Set on every
+// commit — there is no counter, so nothing can leak or drift.
+function seedPending(q) {
+  const kind = currentKind();
+  const willLookup = q.link
+    ? KINDS.includes(kind)
+    : (kind === 'artist' ? Boolean(q.artist) : Boolean(q.title));
+  state.pending = new Set(
+    willLookup ? PLATFORMS.map((p) => p.key).filter((k) => !state.sourceKeys.includes(k)) : []
+  );
+}
+
+function settlePending(keys, gen) {
+  if (gen !== state.generation) return;
+  if (keys === 'all') state.pending.clear();
+  else for (const k of keys) state.pending.delete(k);
+}
+
+// --- The ONE commit path. Every trigger (input Enter/paste/magnifier,
+// form Enter/Search, chip click, share hash on load) lands here.
+let running = null; // { key, gen } — guards an identical query still in flight
+
+async function commitSearch(q) {
+  if (!q) return;
+  const key = queryKey(q);
+  // Drop only an identical query that is STILL running for the current
+  // generation — a finished or invalidated run may be committed again.
+  if (running && running.key === key && running.gen === state.generation) return;
+  state.generation += 1;
+  const gen = state.generation;
+  running = { key, gen };
+  setStatus('');
+  setNote('');
+  setLine(el.suggest, '');
   try {
-    const kind = currentKind();
-    const found = await findExactLinks({ artist, title, kind }, region, state.sourceKeys);
-    if (gen !== state.generation) return;
-    if (found.artist && !el.artist.value.trim()) {
-      // Assigned directly, WITHOUT dispatching an input event: the field
-      // listener would run invalidateMatches() and wipe the dedupe guards
-      // (isrcFrom/upcChecked) that keep round 2 from redoing work.
-      el.artist.value = found.artist;
-      // The artist was found in this round — run one more round so the
-      // artist-dependent lookups (iTunes exact match) can use it.
-      enrich();
+    if (q.link) {
+      resetResults();
+      writeHash(q);
+      if (!q.parsed.ok) {
+        hideTrack();
+        render();
+        if (q.parsed.reason === 'shortlink' || q.parsed.reason === 'smartlink') setNote(q.parsed.note);
+        else setNote('That doesn’t look like a music link from a known platform.');
+        return;
+      }
+      state.parsed = q.parsed;
+      state.sourceKeys = sourceCardKeys(q.parsed);
+      for (const k of state.sourceKeys) state.exact[k] = q.parsed.url;
+      syncSurfaces(q);
+      syncKindUi();
+      seedPending(q);
+      render();
+      await runLinkPipeline(q, gen);
+    } else {
+      // A fields commit refines the session on screen (source card stays);
+      // a main-input commit starts a fresh one.
+      resetResults({ keepSource: q.origin === 'fields' && Boolean(state.parsed) });
+      if (!state.parsed) state.kind = q.kind;
+      syncSurfaces(q);
+      writeHash(q);
+      syncKindUi();
+      seedPending(q);
+      render();
+      await runLookup(gen);
     }
-    // A confirmed catalog match upgrades the display: cover art for any
-    // session still missing one, canonical spelling for text/form
-    // sessions (pasted links keep their own fetched metadata).
-    if (found.thumb && el.thumb.hidden) {
-      el.thumb.src = found.thumb;
+  } catch { /* every stage is best effort — search links stay */ }
+  finally {
+    if (running && running.gen === gen) running = null;
+    if (gen === state.generation) clearPhase();
+  }
+}
+
+function commitFromInput() {
+  commitSearch(inputQuery());
+}
+
+function commitFromFields() {
+  commitSearch(fieldsQuery());
+}
+
+// "Next search": one click back to a clean slate — the only reset.
+function resetAll() {
+  state.generation += 1; // invalidate anything in flight
+  running = null;
+  resetResults();
+  state.artistChips = null;
+  el.input.value = '';
+  hideTrack();
+  setStatus('');
+  setNote('');
+  setLine(el.suggest, '');
+  el.results.hidden = true;
+  el.cards.replaceChildren();
+  history.replaceState(null, '', location.pathname + location.search);
+  syncKindUi();
+}
+
+// --- Pipeline. Link sessions fetch source metadata first, then everything
+// funnels into runLookup, whose finally-block settles the pending set.
+
+async function runLinkPipeline(q, gen) {
+  setPhase('Looking up track info');
+  try {
+    const meta = await fetchMetadata(q.parsed);
+    if (gen !== state.generation) return;
+    el.artist.value = meta.artist || '';
+    el.title.value = meta.title || '';
+    // Spotify artist pages: oEmbed puts the artist name in the title.
+    if (q.parsed.kind === 'artist' && !el.artist.value && el.title.value) {
+      el.artist.value = el.title.value;
+      el.title.value = '';
+    }
+    if (meta.thumb) {
+      el.thumb.src = meta.thumb;
       el.thumb.hidden = false;
     }
-    if (!state.parsed) {
-      if (found.canonicalArtist) el.artist.value = found.canonicalArtist;
-      if (found.canonicalTitle) el.title.value = found.canonicalTitle;
+    Object.assign(state.exact, meta.exact || {});
+    if (meta.isrc) state.isrc = meta.isrc;
+    if (meta.upc) state.upc = meta.upc;
+    for (const k of state.sourceKeys) state.exact[k] = q.parsed.url;
+    if (meta.note) setNote(meta.note);
+  } catch {
+    if (gen !== state.generation) return;
+    setNote('Couldn’t fetch track info — enter artist and title to build the links.');
+  }
+  render();
+  await runLookup(gen);
+}
+
+// Merge one catalog round into state and the form fields. Field values are
+// assigned directly, WITHOUT dispatching input events: the field listener
+// would run invalidateMatches() and wipe the dedupe guards
+// (isrcFrom/upcChecked) that keep later rounds from redoing work.
+function applyFound(found) {
+  if (found.artist && !el.artist.value.trim()) el.artist.value = found.artist;
+  // A confirmed catalog match upgrades the display: cover art for any
+  // session still missing one, canonical spelling for text/form sessions
+  // (pasted links keep their own fetched metadata).
+  if (found.thumb && el.thumb.hidden) {
+    el.thumb.src = found.thumb;
+    el.thumb.hidden = false;
+  }
+  if (!state.parsed) {
+    if (found.canonicalArtist) el.artist.value = found.canonicalArtist;
+    if (found.canonicalTitle) el.title.value = found.canonicalTitle;
+  }
+  for (const key of ['deezer', 'appleMusic']) {
+    if (found[key] && !state.sourceKeys.includes(key)) state.exact[key] = found[key];
+  }
+  // Only a round WITH candidates may overwrite the chips — a round with
+  // the artist known (no candidates returned) must leave them standing.
+  // Keyed by the field value, which canonicalization may just have
+  // changed — the chips must describe what the title field shows NOW.
+  if (found.artistCandidates?.length) {
+    state.artistChips = {
+      title: el.title.value.trim(),
+      // Keep the auto-pick in the pool: after a correction it becomes a
+      // chip again, so a wrong correction has a one-click way back.
+      names: found.artist ? [found.artist, ...found.artistCandidates] : found.artistCandidates,
+      itunesDown: Boolean(found.itunesDown),
+    };
+  }
+}
+
+async function runLookup(gen) {
+  const kind = currentKind();
+  const artist = el.artist.value.trim();
+  const title = el.title.value.trim();
+  try {
+    if (kind === 'artist') {
+      await runArtistLookup(gen, artist);
+      return;
     }
-    for (const key of ['deezer', 'appleMusic']) {
-      if (found[key] && !state.sourceKeys.includes(key)) state.exact[key] = found[key];
+    if (kind !== 'track' && kind !== 'album') return; // playlists: nothing to match
+    if (!title) return; // artist-only in track/album kind: search links only
+    setPhase('Searching catalogs');
+    const found = await findExactLinks({ artist, title, kind }, region, state.sourceKeys);
+    if (gen !== state.generation) return;
+    applyFound(found);
+    // The artist was only just discovered — run one more catalog round so
+    // the artist-dependent lookups (iTunes exact match) can use it.
+    // Awaited sequentially: "the catalog stage is done" must be one
+    // well-defined moment for the pending set to key on.
+    if (found.artist && !artist) {
+      const again = await findExactLinks(
+        { artist: el.artist.value.trim(), title: el.title.value.trim(), kind },
+        region, state.sourceKeys
+      );
+      if (gen !== state.generation) return;
+      applyFound(again);
     }
-    // Only a round WITH candidates may overwrite the chips — round 2
-    // (artist known, no candidates returned) must leave them standing.
-    // Keyed by the field value, which canonicalization may just have
-    // changed — the chips must describe what the title field shows NOW.
-    if (found.artistCandidates?.length) {
-      state.artistChips = {
-        title: el.title.value.trim(),
-        // Keep the auto-pick in the pool: after a correction it becomes a
-        // chip again, so a wrong correction has a one-click way back.
-        names: found.artist ? [found.artist, ...found.artistCandidates] : found.artistCandidates,
-        picked: found.artist || '',
-        itunesDown: Boolean(found.itunesDown),
-      };
-    }
-    updateStatusLine(kind);
+    settlePending(['deezer', 'appleMusic'], gen);
+    updateOutcome(kind);
     render();
     if (kind === 'album') await enrichViaUpc(gen);
     else await enrichViaIsrc(gen);
-    if (gen === state.generation) updateStatusLine(kind);
-  } catch { /* search links stay — enrichment is best effort */ }
-}, 500);
+    if (gen !== state.generation) return;
+    updateOutcome(kind);
+  } finally {
+    settlePending('all', gen);
+    if (gen === state.generation) render();
+  }
+}
+
+// Artist pipeline: catalog artist search (Deezer + iTunes), then the
+// MusicBrainz artist fan-out. The pasted artist URL is the best anchor —
+// it IS the identity; a catalog match is only a ranked guess.
+async function runArtistLookup(gen, artist) {
+  if (!artist) return;
+  setPhase('Searching catalogs');
+  const found = await findArtistLinks({ artist }, region, state.sourceKeys);
+  if (gen !== state.generation) return;
+  applyFound(found);
+  settlePending(['deezer', 'appleMusic'], gen);
+  render();
+  setPhase('Checking MusicBrainz for exact links');
+  const anchor = state.parsed?.url || state.exact.deezer || state.exact.appleMusic || '';
+  const links = await findLinksByArtist({ url: anchor, name: el.artist.value.trim() });
+  if (gen !== state.generation) return;
+  for (const [key, url] of Object.entries(links)) {
+    if (!state.exact[key] && !state.sourceKeys.includes(key)) state.exact[key] = url;
+  }
+  render();
+  updateOutcome('artist');
+}
 
 // Second best-effort stage: ISRC → MusicBrainz URL relations. This is
 // the only keyless path to an exact Spotify link (Spotify has no keyless
@@ -488,184 +746,33 @@ async function enrichViaUpc(gen) {
   } catch { /* best effort — search links stay */ }
 }
 
-function resetTrack() {
-  state.parsed = null;
-  state.exact = {};
-  state.sourceKeys = [];
-  state.isrc = '';
-  state.isrcChecked = '';
-  state.isrcFrom = '';
-  state.upc = '';
-  state.upcChecked = '';
-  state.upcFrom = '';
-  state.artistChips = null;
-  el.artist.value = '';
-  el.title.value = '';
-  el.thumb.hidden = true;
-  el.thumb.removeAttribute('src');
-  el.track.hidden = true;
-  el.results.hidden = true;
-  el.cards.replaceChildren();
-  // Back to the form defaults: the kind toggle applies again (no parsed
-  // link dictating the kind) and the opener returns with the empty page.
-  el.kindToggle.hidden = false;
-  el.openSearch.hidden = false;
-  syncKindUi();
-}
-
-// A manual artist/title edit means every found match may now be wrong:
-// invalidate in-flight enrichment and drop everything except the source
-// link itself, then let enrich() re-derive matches for the new words.
-// state.artistChips survives on purpose — the candidates describe the
-// TITLE, not the matches, and self-invalidate when the title changes.
-function invalidateMatches() {
-  state.generation++;
-  state.exact = {};
-  if (state.parsed) for (const key of state.sourceKeys) state.exact[key] = state.parsed.url;
-  state.isrc = '';
-  state.isrcChecked = '';
-  state.isrcFrom = '';
-  state.upc = '';
-  state.upcChecked = '';
-  state.upcFrom = '';
-  lastHandled = null; // re-pasting the same link must reset the edits
-}
-
-let lastHandled = null; // dedupes the paste-event + input-event double fire
-
-// Only deliberate commits land here (magnifier, Enter, paste, share
-// hash) — plain typing stays quiet by design, so nothing on the page
-// moves and no API budget burns until the user actually asks.
-async function handleInput() {
-  const raw = el.input.value;
-  if (raw === lastHandled) return;
-  lastHandled = raw;
-  state.generation++;
-  const gen = state.generation;
-  resetTrack();
-  setStatus(''); // a fresh run must not inherit a stale warn note
-
-  if (!raw.trim()) {
-    setStatus('');
-    history.replaceState(null, '', location.pathname + location.search);
-    return;
-  }
-
-  // Non-link text ("Will Smith - Miami") is a search request, not an
-  // error: split it into the fields and run the normal enrich pipeline —
-  // no source card, no metadata fetch. The hash keeps text shareable too.
-  if (!looksLikeLink(raw)) {
-    const parts = parseFreeText(raw);
-    if (!parts) {
-      setStatus('');
-      history.replaceState(null, '', location.pathname + location.search);
-      return;
-    }
-    history.replaceState(null, '', location.pathname + location.search + shareHashFor(raw, state.searchKind));
-    el.artist.value = parts.artist;
-    el.title.value = parts.title;
-    el.track.hidden = false;
-    el.openSearch.hidden = true;
-    setPhase('Searching catalogs');
-    render();
-    enrich();
-    return;
-  }
-
-  const parsed = parseInput(raw);
-  // Keep the address bar shareable: the pasted link travels in the hash.
-  history.replaceState(null, '', location.pathname + location.search + (parsed.ok ? shareHashFor(raw) : ''));
-  if (!parsed.ok) {
-    if (parsed.reason === 'shortlink' || parsed.reason === 'smartlink') setStatus(parsed.note, 'warn');
-    else setStatus('That doesn’t look like a music link from a known platform.', 'warn');
-    return;
-  }
-
-  state.parsed = parsed;
-  state.sourceKeys = sourceCardKeys(parsed);
-  for (const key of state.sourceKeys) state.exact[key] = parsed.url;
-  el.track.hidden = false;
-  el.openSearch.hidden = true;
-  el.kindToggle.hidden = true; // the parsed link dictates the kind
-  syncKindUi();
-  setPhase('Looking up track info');
-
-  setBusy(true);
-  try {
-    const meta = await fetchMetadata(parsed);
-    if (gen !== state.generation) return;
-    el.artist.value = meta.artist || '';
-    el.title.value = meta.title || '';
-    if (meta.thumb) {
-      el.thumb.src = meta.thumb;
-      el.thumb.hidden = false;
-    }
-    Object.assign(state.exact, meta.exact || {});
-    if (meta.isrc) state.isrc = meta.isrc;
-    if (meta.upc) state.upc = meta.upc;
-    for (const key of state.sourceKeys) state.exact[key] = parsed.url;
-    setStatus(meta.note || '', meta.note ? 'warn' : 'info');
-  } catch {
-    if (gen !== state.generation) return;
-    setStatus('Couldn’t fetch track info — enter artist and title to build the links.', 'warn');
-  } finally {
-    setBusy(false);
-  }
-
-  render();
-  enrich();
-}
-
-// Commit a field-level search (form button, Enter in a field, chip
-// click). A form-born session gets a shareable hash like free text does;
-// link and free-text sessions keep the hash they already have.
-function runFieldSearch() {
-  const artist = el.artist.value.trim();
-  const title = el.title.value.trim();
-  if (!artist && !title) return;
-  if (!state.parsed && !el.input.value.trim()) {
-    const text = [artist, title].filter(Boolean).join(' - ');
-    history.replaceState(null, '', location.pathname + location.search + shareHashFor(text, state.searchKind));
-  }
-  // Artist-only input builds pure search links — no lookup, no phase.
-  if (title) setPhase('Searching catalogs');
-  render();
-  enrich();
-}
-
-function setSearchKind(kind) {
-  if (state.searchKind === kind) return;
-  state.searchKind = kind;
-  for (const b of el.kindToggle.querySelectorAll('.kind-btn')) {
-    b.setAttribute('aria-pressed', String(b.dataset.kind === kind));
-  }
+function setKind(kind) {
+  if (state.kind === kind) return;
+  state.kind = kind;
+  syncKindToggle();
   syncKindUi();
   // A different kind means different entities — matches are stale, but
-  // the search itself stays a deliberate click away.
+  // the search itself stays a deliberate commit away.
   invalidateMatches();
   render();
 }
 
-// "Next search": one click back to a clean slate. The empty-input path
-// of handleInput already does the full reset (state, status, share hash).
+// --- Listeners. Typing stays quiet everywhere; only commits act.
+
 el.nextLink.addEventListener('click', () => {
-  el.input.value = '';
-  handleInput();
+  resetAll();
   el.input.focus();
 });
 
-// Deliberate-search mode: typing stays quiet. Only emptying the field
-// acts immediately (full reset); the opener hides while text is present
-// because the form is an alternative to typing, not a companion.
-el.input.addEventListener('input', debounce(() => {
-  const empty = !el.input.value.trim();
-  if (el.track.hidden) el.openSearch.hidden = !empty;
-  if (empty) handleInput();
-}, 250));
+// The opener hides while text is present because the form is an
+// alternative to typing, not a companion.
+el.input.addEventListener('input', () => {
+  if (el.track.hidden) el.openSearch.hidden = Boolean(el.input.value.trim());
+});
 // Paste is a complete entry — resolve it instantly, no extra click.
-el.input.addEventListener('paste', () => setTimeout(handleInput, 0));
-el.input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') handleInput(); });
-el.go.addEventListener('click', () => handleInput());
+el.input.addEventListener('paste', () => setTimeout(commitFromInput, 0));
+el.input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commitFromInput(); });
+el.go.addEventListener('click', commitFromInput);
 
 el.openSearch.addEventListener('click', () => {
   el.openSearch.hidden = true;
@@ -680,20 +787,22 @@ for (const field of [el.artist, el.title]) {
     invalidateMatches();
     render();
   });
-  field.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') runFieldSearch(); });
+  field.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commitFromFields(); });
 }
-el.formSearch.addEventListener('click', runFieldSearch);
+el.formSearch.addEventListener('click', commitFromFields);
 
 for (const btn of el.kindToggle.querySelectorAll('.kind-btn')) {
-  btn.addEventListener('click', () => setSearchKind(btn.dataset.kind));
+  btn.addEventListener('click', () => setKind(btn.dataset.kind));
 }
 
 // Arriving via a share link (#l=…): populate and resolve immediately.
 const shared = linkFromHash(location.hash);
 if (shared) {
-  if (shared.kind === 'album') setSearchKind('album');
+  if (KINDS.includes(shared.kind)) state.kind = shared.kind;
+  syncKindToggle();
+  syncKindUi();
   el.input.value = shared.link;
-  handleInput();
+  commitFromInput();
 }
 
 el.input.focus();

@@ -26,10 +26,11 @@
           <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path>
         </svg>
       </button>
-      <span id="busy" class="spinner" hidden aria-hidden="true"></span>
     </div>
     <button id="open-search" class="opener" type="button">▸ or search by artist / title / album</button>
-    <p id="status" hidden></p>
+    <p id="status" class="line" hidden></p>
+    <p id="note" class="line" hidden></p>
+    <p id="suggest" class="line" hidden></p>
 
     <section id="track" hidden aria-label="Track details">
       <img id="thumb" alt="" hidden>
@@ -43,6 +44,7 @@
         <div id="kind-toggle" role="group" aria-label="Search for">
           <button type="button" class="kind-btn" data-kind="track" aria-pressed="true">Track</button>
           <button type="button" class="kind-btn" data-kind="album" aria-pressed="false">Album</button>
+          <button type="button" class="kind-btn" data-kind="artist" aria-pressed="false">Artist</button>
         </div>
         <button id="form-search" class="btn btn-go" type="button">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
@@ -61,7 +63,14 @@
         <h2>Listen on</h2>
         <div class="results-actions">
           <button id="next-link" class="btn btn-next" type="button"
-                  title="Clear everything and start the next search">Next search</button>
+                  title="Clear everything and start the next search">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M4 7h16"></path><path d="M9 7V4h6v3"></path>
+              <path d="M6 7l1 13h10l1-13"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>
+            </svg>
+            Next search
+          </button>
           <button id="share" class="btn" type="button"
                   title="Share this page with the pasted link included">Share</button>
           <button id="copy-all" class="btn" type="button">Copy all</button>
@@ -105,15 +114,15 @@
   <script type="importmap">
   {
     "imports": {
-      "./js/parsers.mjs": "./js/parsers.mjs?v=20260821b",
-      "./js/links.mjs": "./js/links.mjs?v=20260821b",
-      "./js/adapters.mjs": "./js/adapters.mjs?v=20260821b",
-      "./js/cards.mjs": "./js/cards.mjs?v=20260821b",
-      "./js/icons.mjs": "./js/icons.mjs?v=20260821b",
-      "./js/embeds.mjs": "./js/embeds.mjs?v=20260821b"
+      "./js/parsers.mjs": "./js/parsers.mjs?v=20260821c",
+      "./js/links.mjs": "./js/links.mjs?v=20260821c",
+      "./js/adapters.mjs": "./js/adapters.mjs?v=20260821c",
+      "./js/cards.mjs": "./js/cards.mjs?v=20260821c",
+      "./js/icons.mjs": "./js/icons.mjs?v=20260821c",
+      "./js/embeds.mjs": "./js/embeds.mjs?v=20260821c"
     }
   }
   </script>
-  <script type="module" src="js/app.mjs?v=20260821b"></script>
+  <script type="module" src="js/app.mjs?v=20260821c"></script>
 </body>
 </html>

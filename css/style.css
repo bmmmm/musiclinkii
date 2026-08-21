@@ -88,8 +88,7 @@ h1 {
 
 .input-wrap { position: relative; }
 
-/* The magnifier inside the main input — the visible commit for a search.
-   While a lookup runs it yields its spot to the spinner. */
+/* The magnifier inside the main input — the visible commit for a search. */
 .input-btn {
   position: absolute;
   top: 50%;
@@ -126,38 +125,23 @@ h1 {
 
 .opener:hover { color: var(--accent); }
 
-/* Global activity indicator — visible while any keyless lookup is in flight. */
-.spinner {
-  position: absolute;
-  top: 50%;
-  right: 1.1rem;
-  width: 1.1rem;
-  height: 1.1rem;
-  margin-top: -0.55rem;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  pointer-events: none;
-}
-
 @keyframes spin { to { transform: rotate(360deg); } }
 
-@media (prefers-reduced-motion: reduce) {
-  .spinner { animation: none; }
-}
-
-#status {
+/* Status area: three single-owner lines — #status (phase/outcome),
+   #note (source caveats), #suggest (artist chips). */
+.line {
   margin: 0.8rem 0.2rem 0;
   font-size: 0.92rem;
   color: var(--muted);
 }
 
-#status[data-tone='warn'] { color: #c07a1c; }
+.line + .line { margin-top: 0.3rem; }
+
+.line[data-tone='warn'] { color: #c07a1c; }
 
 /* Animated ellipsis while a lookup phase is running. Browsers without
    content animation keep the static fallback dots. */
-#status[data-busy]::after {
+.line[data-busy]::after {
   display: inline-block;
   width: 1.1em;
   text-align: left;
@@ -173,7 +157,7 @@ h1 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #status[data-busy]::after { animation: none; }
+  .line[data-busy]::after { animation: none; }
 }
 
 /* One-click artist suggestions inside the status line */
@@ -274,7 +258,8 @@ h1 {
 }
 
 .kind-btn:first-child { border-radius: 0.55rem 0 0 0.55rem; }
-.kind-btn:last-child { border-radius: 0 0.55rem 0.55rem 0; border-left: none; }
+.kind-btn:last-child { border-radius: 0 0.55rem 0.55rem 0; }
+.kind-btn + .kind-btn { border-left: none; }
 
 .kind-btn[aria-pressed='true'] {
   color: var(--badge-source-fg);
@@ -370,6 +355,29 @@ h1 {
 
 .card-name { font-weight: 600; font-size: 0.95rem; }
 
+/* Per-card activity: spins while a pipeline stage could still upgrade
+   this card to an exact match. */
+.card[data-pending] .card-name::after {
+  content: '';
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-left: 0.4rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card[data-pending] .card-name::after {
+    animation: none;
+    border-color: var(--accent);
+    opacity: 0.5;
+  }
+}
+
 .badge {
   align-self: flex-start;
   padding: 0.05rem 0.5rem;
@@ -409,6 +417,9 @@ h1 {
 
 /* The reset action must be findable at a glance: accent outline, calm fill. */
 .btn-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   color: var(--accent);
   border-color: var(--accent);
   background: transparent;

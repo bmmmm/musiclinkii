@@ -7,8 +7,10 @@ import { parseInput } from './parsers.mjs';
 import { embedFor, appLinkFor } from './embeds.mjs';
 
 // → [{ key, name, badge, url, embed, app }] in PLATFORMS order.
-export function cardModels({ exact, sourceKeys, kind, isrc, upc }, { artist, title }, region, dark) {
+export function cardModels({ exact, sourceKeys, kind, isrc, upc, pending }, { artist, title }, region, dark) {
   const query = buildQuery(artist, title);
+  // Accepts a Set or an array; absent means nothing is pending.
+  const pendingSet = new Set(pending || []);
   const parts = {
     artist: (artist || '').trim(),
     title: (title || '').trim(),
@@ -37,6 +39,9 @@ export function cardModels({ exact, sourceKeys, kind, isrc, upc }, { artist, tit
       codeKind: code,
       embed: entity ? embedFor(entity, dark) : null,
       app: entity ? appLinkFor(entity) : null,
+      // A pending card by definition has no exact URL, hence no embed —
+      // the flag flipping can never tear down an open preview iframe.
+      pending: !exactUrl && pendingSet.has(p.key),
     });
   }
   return models;
@@ -47,5 +52,5 @@ export function cardModels({ exact, sourceKeys, kind, isrc, upc }, { artist, tit
 // Covers everything buildCard reads. URLs cannot contain a raw newline, so
 // the join is unambiguous.
 export function cardSignature(m) {
-  return [m.badge, m.url, m.codeKind || '', m.embed?.src || '', m.app?.href || ''].join('\n');
+  return [m.badge, m.url, m.codeKind || '', m.pending ? 'p' : '', m.embed?.src || '', m.app?.href || ''].join('\n');
 }

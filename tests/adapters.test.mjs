@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
   cleanTitle, splitDashTitle, looselyMatches, searchableTitle, parseFreeText,
   deezerCandidates, itunesCandidates, pickByArtist, strictTitleHits, artistCandidates,
+  pickByName, pickMbArtist, mapUrlsToPlatforms,
 } from '../js/adapters.mjs';
 
 test('cleanTitle strips video noise', () => {
@@ -51,6 +52,15 @@ test('parseFreeText splits typed text into artist/title', () => {
   assert.equal(parseFreeText(''), null);
 });
 
+test('parseFreeText artist kind never dash-splits', () => {
+  // Artist names are one field — a dash split would drop half the name.
+  assert.deepEqual(parseFreeText('Simon & Garfunkel', 'artist'), { artist: 'Simon & Garfunkel', title: '' });
+  assert.deepEqual(parseFreeText('A - B', 'artist'), { artist: 'A - B', title: '' });
+  assert.equal(parseFreeText('  ', 'artist'), null);
+  // The default kind keeps the historic split behavior.
+  assert.deepEqual(parseFreeText('A - B'), { artist: 'A', title: 'B' });
+});
+
 test('deezerCandidates normalizes tracks and albums, tolerates errors', () => {
   // Track rows carry the cover on the nested album object.
   const track = { data: [{ id: 1038058, title: 'Miami', artist: { name: 'Will Smith' }, link: 'https://www.deezer.com/track/1038058', album: { cover_medium: 'https://cdn.dzcdn.net/miami.jpg' } }] };
@@ -65,6 +75,73 @@ test('deezerCandidates normalizes tracks and albums, tolerates errors', () => {
   ]);
   assert.deepEqual(deezerCandidates({ error: { code: 4 } }, 'track'), []);
   assert.deepEqual(deezerCandidates(null, 'track'), []);
+});
+
+test('deezerCandidates normalizes artist rows', () => {
+  // Artist rows carry name/picture_medium, no title; link rebuilt from id.
+  const artists = { data: [
+    { id: 27, name: 'Daft Punk', link: 'https://www.deezer.com/artist/27', picture_medium: 'https://cdn.dzcdn.net/dp.jpg' },
+    { id: 28, name: 'Daft Funk Tribute' },
+    { name: 'No Id No Link' },
+  ] };
+  assert.deepEqual(deezerCandidates(artists, 'artist'), [
+    { title: '', artist: 'Daft Punk', link: 'https://www.deezer.com/artist/27', id: '27', thumb: 'https://cdn.dzcdn.net/dp.jpg' },
+    { title: '', artist: 'Daft Funk Tribute', link: 'https://www.deezer.com/artist/28', id: '28', thumb: '' },
+  ]);
+  // Track/album behavior is untouched by the artist lens.
+  assert.deepEqual(deezerCandidates(artists, 'track'), []);
+});
+
+test('itunesCandidates normalizes musicArtist rows', () => {
+  const artists = { results: [
+    { artistId: 5468295, artistName: 'Daft Punk', artistLinkUrl: 'https://music.apple.com/de/artist/daft-punk/5468295' },
+    { trackId: 5, trackName: 'Miami', artistName: 'Will Smith', trackViewUrl: 'https://x' }, // song row → no artistLinkUrl
+  ] };
+  assert.deepEqual(itunesCandidates(artists, 'artist'), [
+    { title: '', artist: 'Daft Punk', link: 'https://music.apple.com/de/artist/daft-punk/5468295', id: '5468295', thumb: '' },
+  ]);
+});
+
+test('pickByName follows catalog rank with a loose match', () => {
+  const cands = [
+    { title: '', artist: 'Daft Funk Tribute', link: 'a', id: '1' },
+    { title: '', artist: 'Daft Punk', link: 'b', id: '2' },
+  ];
+  // The token-subset match skips the tribute act (no "punk" token) and
+  // takes the first real hit in catalog rank order.
+  assert.equal(pickByName(cands, 'Daft Punk')?.id, '2');
+  assert.equal(pickByName(cands, 'daft punk')?.id, '2');
+  assert.equal(pickByName(cands, 'Nobody Known'), null);
+  assert.equal(pickByName([], 'Daft Punk'), null);
+});
+
+test('pickMbArtist handles url-rels and name-search shapes', () => {
+  const rels = { relations: [{ type: 'free streaming' }, { artist: { id: 'mbid-1', name: 'Daft Punk' } }] };
+  assert.deepEqual(pickMbArtist(rels, 'Daft Punk'), { id: 'mbid-1', name: 'Daft Punk' });
+  const search = { artists: [
+    { id: 'mbid-2', name: 'Daft Punk', score: 100 },
+    { id: 'mbid-3', name: 'Daft Punk Cover Band', score: 100 },
+  ] };
+  assert.deepEqual(pickMbArtist(search, 'Daft Punk'), { id: 'mbid-2', name: 'Daft Punk' });
+  // Low score or a name mismatch never picks — fuzzier is worse than nothing.
+  assert.equal(pickMbArtist({ artists: [{ id: 'x', name: 'Daft Punk', score: 62 }] }, 'Daft Punk'), null);
+  assert.equal(pickMbArtist({ artists: [{ id: 'x', name: 'Punk Floyd', score: 100 }] }, 'Daft Punk'), null);
+  assert.equal(pickMbArtist({}, 'Daft Punk'), null);
+});
+
+test('mapUrlsToPlatforms kind filter is opt-in', () => {
+  const urls = [
+    'https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi',
+    'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i',
+    'https://www.deezer.com/artist/27',
+  ];
+  // With the artist lens the stray track rel is dropped.
+  assert.deepEqual(Object.keys(mapUrlsToPlatforms(urls, 'artist')).sort(), ['deezer', 'spotify']);
+  assert.match(mapUrlsToPlatforms(urls, 'artist').spotify, /artist/);
+  // Without an arg the behavior is unchanged — first hit per platform wins
+  // (regression guard for the ISRC/UPC callers).
+  assert.match(mapUrlsToPlatforms(urls).spotify, /artist\/4tZwfgrHOc3mvqYlEYSvVi/);
+  assert.deepEqual(mapUrlsToPlatforms([], 'artist'), {});
 });
 
 test('itunesCandidates normalizes songs and albums, tolerates errors', () => {
