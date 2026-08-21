@@ -33,6 +33,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
+      # index.html ships asset references marked v=dev; stamp them with the
+      # commit SHA so HTML, CSS and the module chain always come from one
+      # deploy. Counted before and after: a silently non-matching sed would
+      # otherwise deploy uncacheable-busted assets and look like success.
+      - name: Stamp cache-buster
+        run: |
+          before=$(grep -o '?v=dev' index.html | wc -l)
+          test "$before" -ge 8 || { echo "expected >=8 cache-buster refs, found $before"; exit 1; }
+          sed -i "s/?v=dev/?v=${GITHUB_SHA:0:12}/g" index.html
+          test "$(grep -c '?v=dev' index.html || true)" -eq 0 || { echo "stamping left placeholders behind"; exit 1; }
+          echo "stamped $before refs with ${GITHUB_SHA:0:12}"
       - uses: actions/upload-pages-artifact@v5
         with:
           path: .

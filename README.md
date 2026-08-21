@@ -105,10 +105,16 @@ functions):
 node --test 'tests/*.test.mjs'
 ```
 
-**When deploying:** bump every `?v=` value in `index.html` (the import map
-plus the `<script src>`). GitHub Pages caches for ~10 minutes and browsers
-cache ES modules per URL — the versioned import map makes the whole module
-chain update atomically instead of mixing old and new files.
+**Cache busting is automatic — nothing to bump by hand.** Every asset
+reference in `index.html` carries the marker `v=dev`, and the pages workflow
+rewrites it to the commit SHA as it deploys. GitHub Pages serves everything
+with `max-age=600` and caches HTML, CSS and modules independently at the
+edge, so one stamped version per deploy is what keeps the page from mixing a
+new stylesheet with an old module chain.
+
+Adding a module? Give it an import map entry in `index.html` — without one
+it ships unversioned. `tests/assets.test.mjs` fails until you do, and the
+workflow refuses to deploy if the markers go missing.
 
 ## Credits
 

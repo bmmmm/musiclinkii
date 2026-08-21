@@ -7,7 +7,7 @@
   <meta name="description" content="Paste a Spotify, Apple Music, YouTube, Deezer or Tidal link and get matching links for every other streaming platform. Fully static, no server, no tracking.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%97%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=dev">
 </head>
 <body>
   <header>
@@ -107,23 +107,29 @@
     </p>
   </footer>
 
-  <!-- Cache busting without a build step: GitHub Pages caches for ~10 min
-       and browsers cache ES modules per URL, so a deploy could serve a
-       mixed old/new module chain. The import map below versions every
-       module a script imports; bump ALL ?v= values (map + script src)
-       together on each deploy so the whole chain updates atomically. -->
+  <!-- Cache busting: GitHub Pages serves everything with max-age=600 and
+       caches HTML, CSS and modules independently at the edge, so a deploy
+       could hand out new HTML with an old stylesheet or a mixed old/new
+       module chain. Every asset reference below therefore carries the
+       literal marker v=dev, which the pages workflow rewrites to the commit
+       SHA as it deploys — one deploy always ships one consistent set.
+       Never bump it by hand, and never write that marker anywhere else in
+       this file: the workflow rewrites every occurrence, prose included.
+       Locally it is inert (static servers ignore the query string). A new
+       module needs an entry here or it ships unversioned —
+       tests/assets.test.mjs fails until you add one. -->
   <script type="importmap">
   {
     "imports": {
-      "./js/parsers.mjs": "./js/parsers.mjs?v=20260821e",
-      "./js/links.mjs": "./js/links.mjs?v=20260821e",
-      "./js/adapters.mjs": "./js/adapters.mjs?v=20260821e",
-      "./js/cards.mjs": "./js/cards.mjs?v=20260821e",
-      "./js/icons.mjs": "./js/icons.mjs?v=20260821e",
-      "./js/embeds.mjs": "./js/embeds.mjs?v=20260821e"
+      "./js/parsers.mjs": "./js/parsers.mjs?v=dev",
+      "./js/links.mjs": "./js/links.mjs?v=dev",
+      "./js/adapters.mjs": "./js/adapters.mjs?v=dev",
+      "./js/cards.mjs": "./js/cards.mjs?v=dev",
+      "./js/icons.mjs": "./js/icons.mjs?v=dev",
+      "./js/embeds.mjs": "./js/embeds.mjs?v=dev"
     }
   }
   </script>
-  <script type="module" src="js/app.mjs?v=20260821e"></script>
+  <script type="module" src="js/app.mjs?v=dev"></script>
 </body>
 </html>
