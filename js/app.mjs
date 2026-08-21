@@ -217,6 +217,13 @@ function buildCard(m) {
   body.append(name, badge);
   row.appendChild(body);
 
+  // Buttons live in their own row, never inline with the name: a card with
+  // an app link has four of them, and mixed into the title row they wrapped
+  // one by one — leaving "Preview" stranded above the rest and making cards
+  // with an app link half again as tall as those without.
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+
   if (m.embed) {
     const btn = document.createElement('button');
     btn.className = 'btn btn-preview';
@@ -227,7 +234,7 @@ function buildCard(m) {
     btn.dataset.aspect = m.embed.aspect || '';
     btn.title = `Load the ${m.name} preview player (third-party content)`;
     btn.textContent = 'Preview';
-    row.appendChild(btn);
+    actions.appendChild(btn);
   }
   if (m.app) {
     const app = document.createElement('a');
@@ -235,7 +242,7 @@ function buildCard(m) {
     app.href = m.app.href;
     app.title = m.app.title;
     app.textContent = 'App';
-    row.appendChild(app);
+    actions.appendChild(app);
   }
 
   const open = document.createElement('a');
@@ -244,7 +251,7 @@ function buildCard(m) {
   open.target = '_blank';
   open.rel = 'noopener noreferrer';
   open.textContent = 'Open';
-  row.appendChild(open);
+  actions.appendChild(open);
 
   const copy = document.createElement('button');
   copy.className = 'btn btn-copy';
@@ -252,12 +259,12 @@ function buildCard(m) {
   copy.dataset.url = m.url;
   copy.setAttribute('aria-label', `Copy ${m.name} link`);
   copy.textContent = 'Copy';
-  row.appendChild(copy);
+  actions.appendChild(copy);
 
   const slot = document.createElement('div');
   slot.className = 'embed-slot';
   slot.hidden = true;
-  card.append(row, slot);
+  card.append(row, actions, slot);
   return card;
 }
 

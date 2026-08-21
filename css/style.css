@@ -235,11 +235,16 @@ h1 {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.45rem;
   margin-bottom: 0.7rem;
 }
 
+/* Wrapping, because the three buttons together are wider than a 320px
+   screen and pushed the page into horizontal scroll. */
 .results-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
 }
 
@@ -276,13 +281,10 @@ h1 {
 }
 
 .btn-go {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   gap: 0.35rem;
   color: #fff;
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  border: none;
+  border-color: transparent;
 }
 
 .btn-go:hover { filter: brightness(1.08); }
@@ -296,13 +298,30 @@ h1 {
   }
 
   .track-actions > * { flex: 1; }
+
+  /* One column here, so cards are as narrow as they ever get. Measured:
+     a four-button card (Preview + App + Open + Copy) needs these tighter
+     paddings to stay on one line down to a 320px viewport — otherwise
+     exactly the cards that have an app link grow a second row and stick
+     out of the grid. */
+  .card-actions {
+    gap: 0.45rem 0.3rem;
+  }
+
+  .card-actions .btn {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
 }
 
 .results-head h2 { margin: 0; font-size: 1.1rem; }
 
 #cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  /* min() so the track can fall below 19rem instead of overflowing the
+     page: on a 320px screen the container is ~276px and a bare 19rem
+     minimum pushed the whole grid into horizontal scroll. */
+  grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr));
   gap: 0.6rem;
 }
 
@@ -323,6 +342,23 @@ h1 {
 
 .card-row .card-body {
   min-width: 7rem;
+}
+
+/* Actions sit on their own line so every card is the same height whether
+   or not it has a Preview or App button. Preview is pushed left because it
+   loads third-party content; the primary trio stays on the right edge, so
+   Open sits in the same place on every card. */
+.card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.card-actions .btn-preview {
+  margin-right: auto;
 }
 
 .embed-slot {
@@ -398,9 +434,17 @@ h1 {
 .badge-match { background: var(--badge-match-bg); color: var(--badge-match-fg); }
 .badge-search { background: var(--badge-search-bg); color: var(--badge-search-fg); }
 
+/* inline-flex with an explicit line-height, because these are a mix of
+   <a> and <button>: left to their defaults the anchors inherit the body
+   line-height and end up several pixels taller than the buttons sitting
+   right next to them. */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0.42rem 0.8rem;
   font-size: 0.85rem;
+  line-height: 1.25;
   font-weight: 600;
   font-family: inherit;
   color: var(--text);
@@ -415,18 +459,27 @@ h1 {
 
 .btn:hover { border-color: var(--accent); }
 
+/* Transparent border, not none — a missing border would make this button
+   2px shorter than its neighbours. */
 .btn-open {
   color: #fff;
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  border: none;
+  border-color: transparent;
 }
 
 .btn-open:hover { filter: brightness(1.08); }
 
+/* A real alternative to Open, not an afterthought: accent outline so it
+   reads as a peer, filled Open stays the primary. */
+.btn-app {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn-app:hover { background: var(--badge-source-bg); }
+
 /* The reset action must be findable at a glance: accent outline, calm fill. */
 .btn-next {
-  display: inline-flex;
-  align-items: center;
   gap: 0.35rem;
   color: var(--accent);
   border-color: var(--accent);

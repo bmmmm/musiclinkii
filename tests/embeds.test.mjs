@@ -77,3 +77,25 @@ test('appLinkFor: only documented schemes (Spotify) plus Deezer best effort', ()
   assert.equal(appLinkFor(null), null);
 });
 
+// Whenever the parser resolves an entity on a platform that has a scheme,
+// the app link must be offered — no kind may silently fall through.
+test('appLinkFor: every kind the parser resolves gets an app link', () => {
+  const cases = [
+    ['https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i', 'spotify:track:0Jcij1eWd5bDMU5iPbxe2i'],
+    ['https://open.spotify.com/album/4m2880jivSbbyEGAKfITCa', 'spotify:album:4m2880jivSbbyEGAKfITCa'],
+    ['https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi', 'spotify:artist:4tZwfgrHOc3mvqYlEYSvVi'],
+    ['https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M'],
+    ['https://open.spotify.com/intl-de/track/0Jcij1eWd5bDMU5iPbxe2i', 'spotify:track:0Jcij1eWd5bDMU5iPbxe2i'],
+    ['spotify:track:0Jcij1eWd5bDMU5iPbxe2i', 'spotify:track:0Jcij1eWd5bDMU5iPbxe2i'],
+    ['https://music.apple.com/de/album/697194953', 'music://music.apple.com/de/album/697194953'],
+    ['https://music.apple.com/gb/song/1438556832', 'music://music.apple.com/gb/song/1438556832'],
+    ['https://music.apple.com/de/artist/greta/1646937897', 'music://music.apple.com/de/artist/1646937897'],
+    ['https://www.deezer.com/album/302127', 'deezer://www.deezer.com/album/302127'],
+    ['https://www.deezer.com/artist/27', 'deezer://www.deezer.com/artist/27'],
+    ['https://www.deezer.com/playlist/1479458365', 'deezer://www.deezer.com/playlist/1479458365'],
+  ];
+  for (const [url, href] of cases) {
+    assert.equal(appLinkFor(parse(url))?.href, href, url);
+  }
+});
+

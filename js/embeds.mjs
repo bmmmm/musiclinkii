@@ -67,7 +67,7 @@ export function appLinkFor(parsed) {
       title: 'Open in the Spotify app — nothing happens if it isn’t installed',
     };
   }
-  if (parsed.platform === 'deezer' && ['track', 'album', 'artist'].includes(parsed.kind)) {
+  if (parsed.platform === 'deezer' && ['track', 'album', 'artist', 'playlist'].includes(parsed.kind)) {
     return {
       href: `deezer://www.deezer.com/${parsed.kind}/${parsed.id}`,
       title: 'Open in the Deezer app — nothing happens if it isn’t installed',
