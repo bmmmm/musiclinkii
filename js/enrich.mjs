@@ -10,7 +10,7 @@
 // two adapter calls they use.
 
 import { parseInput } from './parsers.mjs';
-import { fetchDeezerIsrc, findLinksByIsrc, fetchDeezerUpc, findLinksByUpc } from './adapters.mjs';
+import { fetchDeezerIsrc, findLinksByIsrc, fetchDeezerUpc, findLinksByUpc, isThrottled } from './adapters.mjs';
 
 // Measured 2026-08-20 (Issue #1): MB recording *search* and alternate
 // Deezer ISRCs both add zero hits over this path — the gap is missing
@@ -55,6 +55,12 @@ export function mergeExactLinks(state, links) {
 // Derive the code from a Deezer *match* only: after a manual title edit the
 // pasted source track no longer describes what the fields say. `gen` guards
 // every await — a newer commit invalidates this round mid-flight.
+//
+// → true when MusicBrainz throttled us. Every other failure stays silent
+// on purpose: a 404 means MB has no entry for this release, which is the
+// normal case for anything fresh and not worth a line. A 503 is not — it
+// costs exact links that DO exist, and swallowing it made a lookup look
+// like a regression for half an hour on 2026-08-21.
 export async function enrichByCode(codeKind, { state, gen, render, setPhase }) {
   const cfg = CODES[codeKind];
   const checkedKey = `${codeKind}Checked`;
@@ -66,21 +72,26 @@ export async function enrichByCode(codeKind, { state, gen, render, setPhase }) {
       if (dz.ok && dz.platform === 'deezer' && dz.kind === cfg.entityKind && state[fromKey] !== dz.id) {
         state[fromKey] = dz.id;
         code = await cfg.fetchCode(dz.id);
-        if (gen !== state.generation) return;
+        if (gen !== state.generation) return false;
         state[codeKind] = code;
         // A fresh code upgrades a search card to a code search — show that
         // BEFORE the MusicBrainz round-trip, which may 404 and throw.
         if (code) render();
       }
     }
-    if (!code || state[checkedKey] === code) return;
+    if (!code || state[checkedKey] === code) return false;
     state[checkedKey] = code;
     setPhase('Checking MusicBrainz for exact links');
     // The album path spends a throttled MB call per release — tell it what
     // is still open so it can stop once nothing is (the ISRC path is a
     // single call and ignores the hint).
     const links = await cfg.findLinks(code, missingMbKeys(state));
-    if (gen !== state.generation) return;
+    if (gen !== state.generation) return false;
     if (mergeExactLinks(state, links)) render();
-  } catch { /* best effort — search links stay */ }
+    return false;
+  } catch (err) {
+    // Best effort either way — the search links stay. The caller only
+    // needs to know whether the gap is MusicBrainz's fault.
+    return isThrottled(err);
+  }
 }

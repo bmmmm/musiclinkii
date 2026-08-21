@@ -100,6 +100,18 @@ function setNote(text) {
   setLine(el.note, text, 'warn');
 }
 
+// MusicBrainz 503s even inside its own 1 req/s budget, and it is the only
+// keyless route to exact Spotify/TIDAL/Qobuz links — so a throttled round
+// shows up as "1 exact match" where the last one found four, with nothing
+// on screen to explain it (that cost half an hour of debugging on
+// 2026-08-21). Same shape as the iTunes rate-limit hint on the chips line.
+// A standing note is never overwritten: a source caveat is more specific
+// than this one, and a re-commit re-runs the lookup anyway.
+function noteMbThrottled() {
+  if (el.note.textContent) return;
+  setNote('MusicBrainz is rate-limiting — some exact links may be missing. Try again in a minute.');
+}
+
 // Progress line for a lookup phase, with animated dots. Always writes —
 // warnings and chips live on their own lines.
 function setPhase(text) {
@@ -731,8 +743,9 @@ async function runLookup(gen, q) {
     settlePending(['deezer', 'appleMusic'], gen);
     updateOutcome(kind);
     render();
-    await enrichByCode(kind === 'album' ? 'upc' : 'isrc', enrichContext(gen));
+    const throttled = await enrichByCode(kind === 'album' ? 'upc' : 'isrc', enrichContext(gen));
     if (gen !== state.generation) return;
+    if (throttled) noteMbThrottled();
     updateOutcome(kind);
   } finally {
     settlePending('all', gen);

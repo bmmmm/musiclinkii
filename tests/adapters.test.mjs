@@ -7,8 +7,17 @@ import {
   cleanTitle, splitDashTitle, looselyMatches, searchableTitle, parseFreeText,
   deezerCandidates, itunesCandidates, pickByArtist, strictTitleHits, artistCandidates,
   pickByName, pickMbArtist, mapUrlsToPlatforms, expandArtistAnchor, relsConfirmAnchor,
-  titlesOverlap, confirmByCatalog, probeNamesakes, namesakeChipLabel, unmetNeed,
+  titlesOverlap, confirmByCatalog, probeNamesakes, namesakeChipLabel, unmetNeed, isThrottled,
 } from '../js/adapters.mjs';
+
+// Decides whether the user gets a rate-limit line. A 404 is the normal
+// answer for a release MusicBrainz has never seen and must stay silent.
+test('isThrottled separates a MusicBrainz 503 from an ordinary miss', () => {
+  assert.equal(isThrottled(new Error('HTTP 503')), true);
+  assert.equal(isThrottled(new Error('HTTP 404')), false);
+  assert.equal(isThrottled(new Error('The operation was aborted')), false);
+  assert.equal(isThrottled(undefined), false);
+});
 
 test('cleanTitle strips video noise', () => {
   assert.equal(cleanTitle('Blinding Lights (Official Video)'), 'Blinding Lights');

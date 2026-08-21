@@ -7,6 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findLinksByUpc } from '../js/adapters.mjs';
+import { enrichByCode } from '../js/enrich.mjs';
 
 // Measured 2026-08-21, barcode:724384960650 (Daft Punk — Discovery): the
 // 2005 release carries the MB-only platforms, the 2024 one adds nothing
@@ -66,4 +67,51 @@ test('without a need hint every release is looked up, exactly as before', async 
   const links = await findLinksByUpc('724384960650');
   assert.equal(calls.length, 3);
   assert.equal(links.spotify, 'https://open.spotify.com/album/2noRn2Aes5aoNVsU6iWThc');
+});
+
+// --- What enrichByCode reports back. The 503/404 split is the whole
+// point: only one of them costs links that exist, and only one of them
+// may put a line on screen. The ISRC is preset so the Deezer JSONP step
+// (which needs a DOM) is skipped — the MB round-trip is what matters.
+
+// Answers every MusicBrainz request with the same HTTP status.
+function stubStatus(status) {
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return { ok: status < 400, status, json: async () => ({}) };
+  };
+  return calls;
+}
+
+const enrichState = () => ({
+  exact: {}, sourceKeys: [], generation: 1, isrc: 'GBARL9300135', isrcChecked: '',
+});
+const enrichCtx = (state) => ({ state, gen: 1, render: () => {}, setPhase: () => {} });
+
+test('a throttled MusicBrainz is reported back, so the UI can say so', async () => {
+  const calls = stubStatus(503);
+  const state = enrichState();
+  assert.equal(await enrichByCode('isrc', enrichCtx(state)), true);
+  assert.equal(calls.length, 2, 'mbJson retried once before giving up');
+  assert.deepEqual(state.exact, {}, 'and no links were invented on the way out');
+});
+
+test('a 404 stays silent — MusicBrainz simply has no entry for this release', async () => {
+  stubStatus(404);
+  assert.equal(await enrichByCode('isrc', enrichCtx(enrichState())), false,
+    'the normal case for a fresh release must not raise a rate-limit warning');
+});
+
+test('a round that finds links reports no throttling', async () => {
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      recordings: [{ relations: [{ url: { resource: 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i' } }] }],
+    }),
+  });
+  const state = enrichState();
+  assert.equal(await enrichByCode('isrc', enrichCtx(state)), false);
+  assert.equal(state.exact.spotify, 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i');
 });

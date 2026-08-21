@@ -41,7 +41,14 @@ spacing) to respect the 1 req/s budget. MB still 503s sporadically even
 under that budget (measured 2026-08-20: one of three spaced calls
 throttled, silently costing the Tidal/Qobuz album rels) — `mbJson`
 retries a 503 once after a double gap; other errors (404) surface
-unchanged. All MB fetches use `cache: 'no-store'`: Chrome caches MB's
+unchanged. Since 2026-08-21 a 503 that survives the retry is no longer
+silent: `enrichByCode` reports it back and `runLookup` puts
+*"MusicBrainz is rate-limiting — some exact links may be missing. Try
+again in a minute."* on the note line (never overwriting a standing
+note). A 404 does **not** trigger it — MB having no entry for a fresh
+release is the normal case, not a failure. Re-committing the same query
+clears `isrcChecked`/`upcChecked` and a 503 is never cached, so "try
+again" really does try again. All MB fetches use `cache: 'no-store'`: Chrome caches MB's
 503 responses and re-serves them without touching the network (measured
 2026-08-20), which would otherwise poison every retry.
 
