@@ -813,7 +813,9 @@ export function relsConfirmAnchor(relUrls, anchorUrls) {
 // of the anchors — that check rides on the artist/{mbid} lookup we make
 // anyway. 2-3 spaced MB calls total, all through mbChain.
 export async function findLinksByArtist({ urls = [], name }) {
-  const anchors = urls.filter(Boolean);
+  // Deduped: the caller passes the pasted URL AND the catalog matches, and
+  // for a Deezer artist page those are literally the same link.
+  const anchors = [...new Set(urls.filter(Boolean))];
   // The anchors and the name ARE the input — same identity, same answer.
   // Sorted so the caller's argument order cannot fragment the key.
   const key = `mb:artist:${[...anchors].sort().join(' ')}|${normalize(name)}`;
