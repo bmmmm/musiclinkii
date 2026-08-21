@@ -8,8 +8,9 @@ import { parseInput, looksLikeLink } from './parsers.mjs';
 import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
 import {
   fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist, parseFreeText,
-  fetchDeezerIsrc, findLinksByIsrc, fetchDeezerUpc, findLinksByUpc, namesakeChipLabel,
+  namesakeChipLabel,
 } from './adapters.mjs';
+import { enrichByCode, mergeExactLinks } from './enrich.mjs';
 import { cardModels, cardSignature } from './cards.mjs';
 import { iconSvg } from './icons.mjs';
 
@@ -621,6 +622,11 @@ function resetAll() {
 // --- Pipeline. Link sessions fetch source metadata first, then everything
 // funnels into runLookup, whose finally-block settles the pending set.
 
+// What js/enrich.mjs needs from here: the shared state object it mutates
+// (same reference, so the generation guard still works) plus the two UI
+// hooks it calls between awaits.
+const enrichContext = (gen) => ({ state, gen, render, setPhase });
+
 async function runLinkPipeline(q, gen) {
   setPhase('Looking up track info');
   try {
@@ -725,8 +731,7 @@ async function runLookup(gen, q) {
     settlePending(['deezer', 'appleMusic'], gen);
     updateOutcome(kind);
     render();
-    if (kind === 'album') await enrichViaUpc(gen);
-    else await enrichViaIsrc(gen);
+    await enrichByCode(kind === 'album' ? 'upc' : 'isrc', enrichContext(gen));
     if (gen !== state.generation) return;
     updateOutcome(kind);
   } finally {
@@ -757,87 +762,9 @@ async function runArtistLookup(gen, artist, pick) {
   const anchorUrls = [state.parsed?.url, state.exact.deezer, state.exact.appleMusic];
   const links = await findLinksByArtist({ urls: anchorUrls, name: el.artist.value.trim() });
   if (gen !== state.generation) return;
-  for (const [key, url] of Object.entries(links)) {
-    if (!state.exact[key] && !state.sourceKeys.includes(key)) state.exact[key] = url;
-  }
+  mergeExactLinks(state, links);
   render();
   updateOutcome('artist');
-}
-
-// Second best-effort stage: ISRC → MusicBrainz URL relations. This is
-// the only keyless path to an exact Spotify link (Spotify has no keyless
-// search); coverage is community-driven, so failures are silent.
-// Measured 2026-08-20 (Issue #1): MB recording *search* and alternate
-// Deezer ISRCs both add zero hits over this path — the gap is missing
-// Spotify URL relations in MB itself, not the lookup route.
-async function enrichViaIsrc(gen) {
-  try {
-    let isrc = state.isrc;
-    // Derive the ISRC from a Deezer *match* only — after a manual edit the
-    // pasted source track no longer describes what the fields say.
-    if (!isrc && state.exact.deezer && !state.sourceKeys.includes('deezer')) {
-      const dz = parseInput(state.exact.deezer);
-      if (dz.ok && dz.platform === 'deezer' && dz.kind === 'track' && state.isrcFrom !== dz.id) {
-        state.isrcFrom = dz.id;
-        isrc = await fetchDeezerIsrc(dz.id);
-        if (gen !== state.generation) return;
-        state.isrc = isrc;
-        // A fresh ISRC upgrades the Spotify card to an isrc: search — show
-        // that BEFORE the MusicBrainz round-trip, which may 404 and throw.
-        if (isrc) render();
-      }
-    }
-    if (!isrc || state.isrcChecked === isrc) return;
-    state.isrcChecked = isrc;
-    setPhase('Checking MusicBrainz for exact links');
-    const links = await findLinksByIsrc(isrc);
-    if (gen !== state.generation) return;
-    let added = false;
-    for (const [key, url] of Object.entries(links)) {
-      if (!state.exact[key] && !state.sourceKeys.includes(key)) {
-        state.exact[key] = url;
-        added = true;
-      }
-    }
-    if (added) render();
-  } catch { /* best effort — search links stay */ }
-}
-
-// Album analog of enrichViaIsrc: Deezer album → UPC (barcode) → MusicBrainz
-// release URL relations → exact album links. Spotify's own upc: search is
-// measured dead (ENDPOINTS.md) — MB is the only keyless path to an exact
-// Spotify album link.
-async function enrichViaUpc(gen) {
-  try {
-    let upc = state.upc;
-    // Derive the UPC from a Deezer *match* only — after a manual edit the
-    // pasted source album no longer describes what the fields say.
-    if (!upc && state.exact.deezer && !state.sourceKeys.includes('deezer')) {
-      const dz = parseInput(state.exact.deezer);
-      if (dz.ok && dz.platform === 'deezer' && dz.kind === 'album' && state.upcFrom !== dz.id) {
-        state.upcFrom = dz.id;
-        upc = await fetchDeezerUpc(dz.id);
-        if (gen !== state.generation) return;
-        state.upc = upc;
-        // A fresh UPC upgrades the YT Music card to a barcode search — show
-        // that BEFORE the MusicBrainz round-trip, which may 404 and throw.
-        if (upc) render();
-      }
-    }
-    if (!upc || state.upcChecked === upc) return;
-    state.upcChecked = upc;
-    setPhase('Checking MusicBrainz for exact links');
-    const links = await findLinksByUpc(upc);
-    if (gen !== state.generation) return;
-    let added = false;
-    for (const [key, url] of Object.entries(links)) {
-      if (!state.exact[key] && !state.sourceKeys.includes(key)) {
-        state.exact[key] = url;
-        added = true;
-      }
-    }
-    if (added) render();
-  } catch { /* best effort — search links stay */ }
 }
 
 function setKind(kind) {

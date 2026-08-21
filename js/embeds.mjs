@@ -33,10 +33,12 @@ const EMBED_BUILDERS = {
     };
   },
   // Apple Music embeds (embed.music.apple.com/{sf}/album/{id}?i={trackId})
-  // are disabled: tested 2026-08-20 in real Chrome, the player loads
-  // MusicKit but never issues a catalog request and stays a grey
-  // placeholder — in an iframe and opened directly, with and without the
-  // slug, for /album and /song alike. Re-enable once it provably renders.
+  // are disabled: the player loads MusicKit but never issues a catalog
+  // request and stays a grey placeholder — in an iframe and opened
+  // directly, with and without the slug, for /album and /song alike.
+  // Re-checked 2026-08-21 in real Chrome: unchanged, all 10 resources
+  // return 200 and none of them talks to amp-api.music.apple.com.
+  // Re-enable once it provably renders.
   appleMusic() {
     return null;
   },
