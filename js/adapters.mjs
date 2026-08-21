@@ -10,6 +10,7 @@
 //   Tidal                 no usable keyless metadata endpoint
 
 import { slugToWords, parseInput } from './parsers.mjs';
+import { cachedResult, DAY_MS } from './cache.mjs';
 
 const TIMEOUT_MS = 8000;
 
@@ -77,6 +78,21 @@ function mbJson(pathAndQuery) {
   });
   mbChain = run.then(() => {}, () => {});
   return run;
+}
+
+// How long a MusicBrainz result stays good. A release that HAS url-rels
+// keeps them — the data is community-curated and does not churn — so a
+// month is safe. An empty answer is the opposite: a release published
+// today can be edited into MB tomorrow, so retry it daily. Errors never
+// reach this function; cachedResult lets rejections through uncached.
+const mbTtl = (links) => (Object.keys(links || {}).length ? 30 * DAY_MS : DAY_MS);
+
+// MusicBrainz throttling, told apart from an ordinary miss. mbJson lets
+// the retry's own rejection through, so the 503 is still in the message;
+// a 404 means "MB has no entry", which is the normal case for fresh
+// releases and must never be treated as a failure.
+export function isThrottled(err) {
+  return /HTTP 503/.test(String(err));
 }
 
 function normalize(s) {
@@ -394,8 +410,18 @@ export function unmetNeed(need, links) {
 // back: measured 2026-08-21 on barcode:724384960650, the second release
 // carried nothing the first one lacked. Omit it and every release is
 // looked up, exactly as before.
+// Keyed by the barcode alone. A run that exited early stores the shorter
+// map, so a later caller missing a platform release 2 would have carried
+// sees a search card instead of an exact link — accepted: `need` only
+// ever shrinks as the direct searches land, and re-fetching on every
+// unmet key would bypass the cache for exactly the albums MB has no rels
+// for, which is the expensive case this cache exists for.
 export async function findLinksByUpc(upc, need = null) {
   if (!upc) return {};
+  return cachedResult(`mb:upc:${upc}`, mbTtl, () => upcLinks(upc, need));
+}
+
+async function upcLinks(upc, need) {
   const data = await mbJson(`release/?query=${encodeURIComponent(`barcode:${upc}`)}&fmt=json&limit=2`);
   const urls = [];
   for (const release of (data.releases || []).slice(0, 2)) {
@@ -416,6 +442,10 @@ export async function findLinksByUpc(upc, need = null) {
 // path (the rels simply don't exist in MB) — don't rebuild that idea.
 export async function findLinksByIsrc(isrc) {
   if (!isrc) return {};
+  return cachedResult(`mb:isrc:${isrc}`, mbTtl, () => isrcLinks(isrc));
+}
+
+async function isrcLinks(isrc) {
   const data = await mbJson(`isrc/${encodeURIComponent(isrc)}?fmt=json&inc=url-rels`);
   const urls = (data.recordings || [])
     .flatMap((rec) => (rec.relations || []).map((rel) => rel.url?.resource))
@@ -784,29 +814,40 @@ export function relsConfirmAnchor(relUrls, anchorUrls) {
 // anyway. 2-3 spaced MB calls total, all through mbChain.
 export async function findLinksByArtist({ urls = [], name }) {
   const anchors = urls.filter(Boolean);
-  const resources = [...new Set(anchors.flatMap(expandArtistAnchor))];
-  let found = null;
-  let anchored = false;
-  if (resources.length) {
-    try {
-      const query = resources.map((u) => `resource=${encodeURIComponent(u)}`).join('&');
-      found = pickMbArtist(await mbJson(`url/?${query}&inc=artist-rels&fmt=json`), name);
-      anchored = Boolean(found);
-    } catch { /* fall through to the name search */ }
-  }
-  if (!found && name) {
-    try {
-      const query = `artist:"${name.replace(/"/g, '')}"`;
-      found = pickMbArtist(
-        await mbJson(`artist/?query=${encodeURIComponent(query)}&fmt=json&limit=3`), name
-      );
-    } catch { /* best effort */ }
-  }
-  if (!found) return {};
-  const full = await mbJson(`artist/${found.id}?inc=url-rels&fmt=json`);
-  const relUrls = (full.relations || []).map((rel) => rel.url?.resource).filter(Boolean);
-  if (!anchored && anchors.length && !relsConfirmAnchor(relUrls, anchors)) return {};
-  return mapUrlsToPlatforms(relUrls, 'artist');
+  // The anchors and the name ARE the input — same identity, same answer.
+  // Sorted so the caller's argument order cannot fragment the key.
+  const key = `mb:artist:${[...anchors].sort().join(' ')}|${normalize(name)}`;
+  // This path absorbs its own errors on the way to the name-search
+  // fallback, so cachedResult never sees the rejection. A round that only
+  // came up empty because MB throttled it must not be stored — that would
+  // turn a one-minute throttling window into a day of "no artist links".
+  let throttled = false;
+  const markThrottle = (err) => { throttled = throttled || isThrottled(err); };
+  return cachedResult(key, (links) => (throttled ? 0 : mbTtl(links)), async () => {
+    const resources = [...new Set(anchors.flatMap(expandArtistAnchor))];
+    let found = null;
+    let anchored = false;
+    if (resources.length) {
+      try {
+        const query = resources.map((u) => `resource=${encodeURIComponent(u)}`).join('&');
+        found = pickMbArtist(await mbJson(`url/?${query}&inc=artist-rels&fmt=json`), name);
+        anchored = Boolean(found);
+      } catch (err) { markThrottle(err); /* fall through to the name search */ }
+    }
+    if (!found && name) {
+      try {
+        const query = `artist:"${name.replace(/"/g, '')}"`;
+        found = pickMbArtist(
+          await mbJson(`artist/?query=${encodeURIComponent(query)}&fmt=json&limit=3`), name
+        );
+      } catch (err) { markThrottle(err); /* best effort */ }
+    }
+    if (!found) return {};
+    const full = await mbJson(`artist/${found.id}?inc=url-rels&fmt=json`);
+    const relUrls = (full.relations || []).map((rel) => rel.url?.resource).filter(Boolean);
+    if (!anchored && anchors.length && !relsConfirmAnchor(relUrls, anchors)) return {};
+    return mapUrlsToPlatforms(relUrls, 'artist');
+  });
 }
 
 export async function findExactLinks({ artist, title, kind = 'track' }, region, sourceKeys = []) {

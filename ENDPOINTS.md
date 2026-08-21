@@ -45,6 +45,16 @@ unchanged. All MB fetches use `cache: 'no-store'`: Chrome caches MB's
 503 responses and re-serves them without touching the network (measured
 2026-08-20), which would otherwise poison every retry.
 
+The three result lookups (`findLinksByIsrc`, `findLinksByUpc`,
+`findLinksByArtist`) go through `js/cache.mjs` in localStorage — at
+**result** level (a handful of URLs), not response level (the full
+url-rels payload). Hits keep for 30 days, empty answers for 1 day (a
+fresh release can be edited into MB tomorrow), errors never (a cached
+503 would freeze the throttling window into a permanent "no links");
+capped at 200 entries, oldest evicted first. Every access is guarded —
+private mode throws on the property itself, so the cache degrades to
+"no cache", never to a failed lookup.
+
 The honest keyless fallback where MB has nothing: Spotify's own `isrc:`
 **search filter** (see the search table below) — a search page, not a
 track permalink, but it lands on exactly the right track. A keyless
