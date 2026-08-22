@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cleanTitle, splitDashTitle, looselyMatches, searchableTitle, parseFreeText,
+  cleanTitle, splitDashTitle, looselyMatches, searchableTitle, parseFreeText, stripReleaseKind,
   deezerCandidates, itunesCandidates, pickByArtist, strictTitleHits, artistCandidates,
   pickByName, pickMbArtist, mapUrlsToPlatforms, expandArtistAnchor, relsConfirmAnchor,
   titlesOverlap, confirmByCatalog, probeNamesakes, namesakeChipLabel, unmetNeed, isThrottled,
@@ -17,6 +17,48 @@ test('isThrottled separates a MusicBrainz 503 from an ordinary miss', () => {
   assert.equal(isThrottled(new Error('HTTP 404')), false);
   assert.equal(isThrottled(new Error('The operation was aborted')), false);
   assert.equal(isThrottled(undefined), false);
+});
+
+// The album path's biggest single loss: measured 2026-08-22, the Apple
+// "- Single" suffix made the Deezer album search return zero candidates
+// for 8 of 8 sampled singles, which costs the UPC and with it every
+// MusicBrainz-only link — Spotify above all.
+test('stripReleaseKind removes the Apple single/EP suffix', () => {
+  assert.equal(stripReleaseKind('Blinding Lights - Single'), 'Blinding Lights');
+  assert.equal(stripReleaseKind('Bunny Is A Rider - Single'), 'Bunny Is A Rider');
+  assert.equal(stripReleaseKind('Rammstein - EP'), 'Rammstein');
+  assert.equal(stripReleaseKind('Moth To A Flame – Single'), 'Moth To A Flame'); // en dash
+  assert.equal(stripReleaseKind('single ladies - single'), 'single ladies'); // case-insensitive
+});
+
+test('stripReleaseKind leaves real titles alone', () => {
+  // Only a trailing " - Single"/" - EP" goes; the words are common enough
+  // inside titles that anything else must survive untouched.
+  assert.equal(stripReleaseKind('Single Ladies'), 'Single Ladies');
+  assert.equal(stripReleaseKind('EP Blues'), 'EP Blues');
+  assert.equal(stripReleaseKind('Every Single Day'), 'Every Single Day');
+  assert.equal(stripReleaseKind('Discovery'), 'Discovery');
+  assert.equal(stripReleaseKind('- Single'), '- Single'); // nothing left over → keep as-is
+  assert.equal(stripReleaseKind(''), '');
+  assert.equal(stripReleaseKind(undefined), '');
+});
+
+// The suffixed title used to come back through the iTunes album candidates
+// as canonicalTitle, land in the title field, and make the next Deezer
+// round miss again — the loop this strip closes.
+test('itunesCandidates strips the suffix from album rows', () => {
+  const cands = itunesCandidates({
+    results: [{ collectionName: 'Blinding Lights - Single', artistName: 'The Weeknd', collectionViewUrl: 'https://music.apple.com/us/album/1', collectionId: 1 }],
+  }, 'album');
+  assert.equal(cands[0].title, 'Blinding Lights');
+});
+
+test('itunesCandidates leaves track rows untouched', () => {
+  // Track names never carry the suffix — only the collection does.
+  const cands = itunesCandidates({
+    results: [{ trackName: 'Blinding Lights', artistName: 'The Weeknd', trackViewUrl: 'https://music.apple.com/us/album/1?i=2', trackId: 2 }],
+  }, 'track');
+  assert.equal(cands[0].title, 'Blinding Lights');
 });
 
 test('cleanTitle strips video noise', () => {

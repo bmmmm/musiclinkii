@@ -78,6 +78,43 @@ test('a known ISRC upgrades the spotify and youtube-music searches only', () => 
   assert.equal(byKey(withExact, 'spotify').viaCode, false);
 });
 
+// The gap this closes: MusicBrainz has no Spotify relation for most tracks
+// (10 of 17 sampled misses, 2026-08-22), so the card stays a search — and a
+// search card used to offer no way into the app at all.
+test('an ISRC search card still offers a Spotify app link', () => {
+  const models = cardModels(
+    { exact: {}, sourceKeys: [], kind: 'track', isrc: 'DE1TX2600017' },
+    { artist: 'Mine', title: 'Ohne dich' }, DE, false
+  );
+  const sp = byKey(models, 'spotify');
+  assert.equal(sp.badge, 'search');
+  assert.equal(sp.app.href, 'spotify:search:isrc%3ADE1TX2600017');
+  // Only Spotify — no other platform has a search scheme that resolves a code.
+  assert.equal(byKey(models, 'youtubeMusic').app, null);
+  assert.equal(byKey(models, 'tidal').app, null);
+  assert.equal(models.filter((m) => m.app).length, 1);
+});
+
+test('a UPC album search card offers no app link', () => {
+  // Spotify's upc: filter is measured dead, so the album card is a plain
+  // text search — nothing an app deep link could land on exactly.
+  const models = cardModels(
+    { exact: {}, sourceKeys: [], kind: 'album', upc: '724384960650' },
+    { artist: 'Daft Punk', title: 'Discovery' }, DE, false
+  );
+  assert.equal(byKey(models, 'spotify').app, null);
+});
+
+// The signature drives DOM reuse; an app link that appears must force a
+// re-render, or the button would never show up on an already-drawn card.
+test('cardSignature covers the search card app link', () => {
+  const base = { exact: {}, sourceKeys: [], kind: 'track' };
+  const fields = { artist: 'Mine', title: 'Ohne dich' };
+  const without = byKey(cardModels(base, fields, DE, false), 'spotify');
+  const withIsrc = byKey(cardModels({ ...base, isrc: 'DE1TX2600017' }, fields, DE, false), 'spotify');
+  assert.notEqual(cardSignature(without), cardSignature(withIsrc));
+});
+
 test('a known UPC upgrades only the youtube-music album search', () => {
   const models = cardModels(
     { exact: {}, sourceKeys: [], kind: 'album', upc: '724384960650' },

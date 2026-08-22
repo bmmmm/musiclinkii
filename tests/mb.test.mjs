@@ -6,7 +6,7 @@
 // not, which is why this file is the slow one in the suite.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findLinksByUpc, findLinksByArtist } from '../js/adapters.mjs';
+import { findLinksByUpc, findLinksByArtist, findLinksByIsrc } from '../js/adapters.mjs';
 import { enrichByCode } from '../js/enrich.mjs';
 
 // Measured 2026-08-21, barcode:724384960650 (Daft Punk — Discovery): the
@@ -45,7 +45,7 @@ function stubMb(bodies = { 'rel-2005': REL_2005, 'rel-2024': REL_2024 }) {
 
 test('the second release lookup is skipped once nothing wanted is open', async () => {
   const calls = stubMb();
-  const links = await findLinksByUpc('724384960650', ['spotify', 'tidal', 'qobuz']);
+  const { links } = await findLinksByUpc('724384960650', ['spotify', 'tidal', 'qobuz']);
   assert.equal(calls.length, 2, 'search + one release lookup — down from three');
   assert.ok(calls[1].includes('rel-2005'), 'the skipped call is the second release, not the first');
   // Lossless where it counts: the four platforms the app shows are all there.
@@ -64,9 +64,108 @@ test('a still-open platform keeps the full budget', async () => {
 
 test('without a need hint every release is looked up, exactly as before', async () => {
   const calls = stubMb();
-  const links = await findLinksByUpc('724384960650');
+  const { links } = await findLinksByUpc('724384960650');
   assert.equal(calls.length, 3);
   assert.equal(links.spotify, 'https://open.spotify.com/album/2noRn2Aes5aoNVsU6iWThc');
+});
+
+// --- The ISRC path's release fallback. Measured 2026-08-22 over the 17
+// track misses: MusicBrainz hangs streaming links on the release rather
+// than the recording often enough that 2 of 10 rel-less recordings had
+// them one hop away (SAULT — "Why Why Why Why Why" among them).
+
+// A recording whose own url-rels are empty, but which belongs to a release.
+const ISRC_NO_RELS = { recordings: [{ relations: [], releases: [{ id: 'rel-sault' }] }] };
+const ISRC_WITH_SPOTIFY = {
+  recordings: [{
+    relations: [{ url: { resource: 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i' } }],
+    releases: [{ id: 'rel-sault' }],
+  }],
+};
+const REL_SAULT = {
+  relations: [
+    { url: { resource: 'https://open.spotify.com/album/57EkTny9UjqpLhFzMO4Hdb' } },
+    { url: { resource: 'https://tidal.com/album/1550545' } },
+    { url: { resource: 'https://www.qobuz.com/de-de/album/five/0724384960650' } },
+  ],
+};
+
+function stubIsrc(isrcBody, releaseBody = REL_SAULT) {
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    const body = String(url).includes('/release/') ? releaseBody : isrcBody;
+    return { ok: true, status: 200, json: async () => body };
+  };
+  return calls;
+}
+
+test('a rel-less recording falls back to its release', async () => {
+  const calls = stubIsrc(ISRC_NO_RELS);
+  const { links } = await findLinksByIsrc('UKMEH1900013', ['spotify', 'tidal', 'qobuz']);
+  assert.equal(calls.length, 2, 'isrc lookup + one release lookup');
+  assert.ok(calls[0].includes('inc=url-rels+releases'), 'release ids ride along, no extra call for them');
+  // Tidal and Qobuz have no code search of their own, so an album link is
+  // the best answer they can get.
+  assert.equal(links.tidal, 'https://tidal.com/album/1550545');
+  assert.ok(links.qobuz);
+});
+
+// The whole reason RELEASE_FALLBACK_KEYS exists: a Spotify ALBUM link on a
+// track card would replace an isrc: search that lands on the exact track
+// (verified in the app 2026-08-22) with a record sleeve. That is a
+// downgrade, so the release's Spotify URL must be ignored here.
+test('the release fallback never hands Spotify an album link for a track', async () => {
+  const { links } = await findLinksByIsrc('UKMEH1900013', ['spotify', 'tidal', 'qobuz']);
+  assert.equal(links.spotify, undefined);
+});
+
+test('a recording with its own rels costs no release lookup', async () => {
+  const calls = stubIsrc(ISRC_WITH_SPOTIFY);
+  const { links } = await findLinksByIsrc('GBARL9300135', ['spotify']);
+  assert.equal(calls.length, 1, 'nothing open that a release could fill');
+  assert.equal(links.spotify, 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i');
+});
+
+test('no release to fall back on ends the lookup', async () => {
+  const calls = stubIsrc({ recordings: [{ relations: [], releases: [] }] });
+  const { links } = await findLinksByIsrc('QZDZE1905106', ['spotify', 'tidal', 'qobuz']);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(links, {});
+});
+
+// The bug this closes: a 503 inside the per-release lookup was swallowed,
+// so the caller saw an ordinary empty answer — and cached it for a day.
+// Measured 2026-08-22: barcode 602435248745 said "no rels" in one run and
+// returned an exact Spotify album link in the next.
+test('a throttled release lookup is reported, not disguised as an empty answer', async () => {
+  globalThis.fetch = async (url) => (String(url).includes('/release/') && !String(url).includes('query=')
+    ? { ok: false, status: 503, json: async () => ({}) }
+    : { ok: true, status: 200, json: async () => SEARCH });
+  const { links, throttled } = await findLinksByUpc('724384960650', ['spotify']);
+  assert.equal(throttled, true, 'a 503 inside the cascade must reach the caller');
+  assert.deepEqual(links, {}, 'and it still returns whatever it did get');
+});
+
+test('a throttled ISRC release fallback is reported too', async () => {
+  globalThis.fetch = async (url) => (String(url).includes('/release/')
+    ? { ok: false, status: 503, json: async () => ({}) }
+    : { ok: true, status: 200, json: async () => ISRC_NO_RELS });
+  const { throttled } = await findLinksByIsrc('UKMEH1900013', ['tidal']);
+  assert.equal(throttled, true);
+});
+
+test('a failed release lookup keeps the recording links', async () => {
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('/release/')) return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ISRC_WITH_SPOTIFY };
+  };
+  // Spotify is satisfied by the recording; tidal/qobuz drive the fallback,
+  // whose failure must not take the Spotify link down with it.
+  const { links } = await findLinksByIsrc('GBARL9300135', ['spotify', 'tidal', 'qobuz']);
+  assert.equal(links.spotify, 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i');
 });
 
 // --- What enrichByCode reports back. The 503/404 split is the whole

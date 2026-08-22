@@ -116,6 +116,23 @@ export function looselyMatches(a, b) {
   return small.every((tok) => bigSet.has(tok));
 }
 
+// Apple is the only catalog that appends the release kind to a single or
+// EP title ("Blinding Lights - Single"); Deezer, MusicBrainz and Spotify
+// all call that release "Blinding Lights". Measured 2026-08-22 over 30
+// Apple album links: the suffix made the Deezer album search return ZERO
+// candidates for 8 of 8 sampled singles — and with no Deezer match there
+// is no UPC, so the MusicBrainz barcode cascade never runs and Spotify
+// (which has no keyless search of its own) stays a plain text search.
+// Nine of the ten album-path misses were "- Single" titles.
+//
+// Stripped at the source rather than inside searchableTitle so the title
+// FIELD, the catalog match and every search link agree on one name. A
+// title that is nothing but the suffix keeps its original text.
+export function stripReleaseKind(title) {
+  const raw = String(title || '').trim();
+  return raw.replace(/\s[-–—]\s(Single|EP)$/i, '').trim() || raw;
+}
+
 // Strip video-title noise like "(Official Video)" / "[HD]".
 export function cleanTitle(title) {
   return String(title || '')
@@ -179,7 +196,7 @@ async function fromApple(parsed) {
     });
   }
   return meta({
-    title: r.collectionName || r.trackName || '',
+    title: stripReleaseKind(r.collectionName || r.trackName || ''),
     artist: r.artistName || '',
     thumb: r.artworkUrl100 || '',
     exact: r.collectionViewUrl ? { appleMusic: r.collectionViewUrl } : {},
@@ -416,19 +433,34 @@ export function unmetNeed(need, links) {
 // ever shrinks as the direct searches land, and re-fetching on every
 // unmet key would bypass the cache for exactly the albums MB has no rels
 // for, which is the expensive case this cache exists for.
+// → { links, throttled }, like findLinksByArtist. The per-release lookup
+// swallows its own errors so one dead release cannot kill the other — and
+// that swallowing is exactly what used to make a 503 indistinguishable
+// from "MusicBrainz has no relations": the empty map then went into the
+// cache for a DAY. Measured 2026-08-22: barcode 602435248745 (Blinding
+// Lights) answered "no rels" in one run and handed over an exact Spotify
+// album link in the next. A throttled round is ignorance, not an answer —
+// it must neither be stored nor stay silent.
 export async function findLinksByUpc(upc, need = null) {
-  if (!upc) return {};
-  return cachedResult(`mb:upc:${upc}`, mbTtl, () => upcLinks(upc, need));
+  if (!upc) return { links: {}, throttled: false };
+  let throttled = false;
+  const markThrottle = (err) => { throttled = throttled || isThrottled(err); };
+  const links = await cachedResult(
+    `mb:upc:${upc}`,
+    (v) => (throttled ? 0 : mbTtl(v)),
+    () => upcLinks(upc, need, markThrottle)
+  );
+  return { links, throttled };
 }
 
-async function upcLinks(upc, need) {
+async function upcLinks(upc, need, markThrottle) {
   const data = await mbJson(`release/?query=${encodeURIComponent(`barcode:${upc}`)}&fmt=json&limit=2`);
   const urls = [];
   for (const release of (data.releases || []).slice(0, 2)) {
     try {
       const full = await mbJson(`release/${release.id}?inc=url-rels&fmt=json`);
       urls.push(...(full.relations || []).map((rel) => rel.url?.resource).filter(Boolean));
-    } catch { /* one missing release must not kill the other */ }
+    } catch (err) { markThrottle(err); /* one missing release must not kill the other */ }
     if (need && !unmetNeed(need, mapUrlsToPlatforms(urls)).length) break;
   }
   return mapUrlsToPlatforms(urls);
@@ -440,17 +472,60 @@ async function upcLinks(upc, need) {
 // must treat this as best effort. Measured 2026-08-20: neither the MB
 // recording search nor alternate Deezer ISRCs add any hits beyond this
 // path (the rels simply don't exist in MB) — don't rebuild that idea.
-export async function findLinksByIsrc(isrc) {
-  if (!isrc) return {};
-  return cachedResult(`mb:isrc:${isrc}`, mbTtl, () => isrcLinks(isrc));
+// Which platforms may take a link from the RELEASE when the recording has
+// none. A release relation is an ALBUM url, so on a track card it is only
+// an upgrade for platforms that cannot search for the exact track by code
+// themselves. Spotify can — its isrc: search lands on the right track
+// (verified in the app 2026-08-22) — so handing it an album link would
+// trade an exact track for a record sleeve. Tidal and Qobuz have no such
+// search (ENDPOINTS.md), so for them the album IS the better answer.
+export const RELEASE_FALLBACK_KEYS = ['tidal', 'qobuz'];
+
+// → { links, throttled }, same contract as the barcode cascade above, and
+// for the same reason: the release fallback swallows its own failure.
+export async function findLinksByIsrc(isrc, need = null) {
+  if (!isrc) return { links: {}, throttled: false };
+  let throttled = false;
+  const markThrottle = (err) => { throttled = throttled || isThrottled(err); };
+  // Keyed by the ISRC alone, like the barcode cascade: `need` only ever
+  // shrinks as the direct searches land, so a cached shorter map is an
+  // acceptable trade for not re-fetching the expensive empty case.
+  const links = await cachedResult(
+    `mb:isrc:${isrc}`,
+    (v) => (throttled ? 0 : mbTtl(v)),
+    () => isrcLinks(isrc, need, markThrottle)
+  );
+  return { links, throttled };
 }
 
-async function isrcLinks(isrc) {
-  const data = await mbJson(`isrc/${encodeURIComponent(isrc)}?fmt=json&inc=url-rels`);
-  const urls = (data.recordings || [])
-    .flatMap((rec) => (rec.relations || []).map((rel) => rel.url?.resource))
-    .filter(Boolean);
-  return mapUrlsToPlatforms(urls);
+async function isrcLinks(isrc, need, markThrottle) {
+  // `releases` rides along on the same request — the fallback below needs
+  // their ids, and asking for them here costs no extra throttled call.
+  const data = await mbJson(`isrc/${encodeURIComponent(isrc)}?fmt=json&inc=url-rels+releases`);
+  const recordings = data.recordings || [];
+  const links = mapUrlsToPlatforms(
+    recordings
+      .flatMap((rec) => (rec.relations || []).map((rel) => rel.url?.resource))
+      .filter(Boolean)
+  );
+  // Measured 2026-08-22 over the 17 track misses: MusicBrainz hangs the
+  // streaming links on the release rather than the recording often enough
+  // that 2 of 10 rel-less recordings had them one hop away.
+  const open = unmetNeed(need || RELEASE_FALLBACK_KEYS, links)
+    .filter((key) => RELEASE_FALLBACK_KEYS.includes(key));
+  if (!open.length) return links;
+  const releaseId = recordings.flatMap((rec) => rec.releases || [])[0]?.id;
+  if (!releaseId) return links;
+  try {
+    const full = await mbJson(`release/${releaseId}?inc=url-rels&fmt=json`);
+    const fromRelease = mapUrlsToPlatforms(
+      (full.relations || []).map((rel) => rel.url?.resource).filter(Boolean)
+    );
+    // Only the keys we went looking for — a release carries links for
+    // platforms whose track card is already better served elsewhere.
+    for (const key of open) if (fromRelease[key]) links[key] = fromRelease[key];
+  } catch (err) { markThrottle(err); /* best effort: the recording's own links still stand */ }
+  return links;
 }
 
 // --- Catalog search: one candidate shape for both catalogs and kinds ---
@@ -496,7 +571,10 @@ export function itunesCandidates(data, kind = 'track') {
   }
   return rows
     .map((r) => (kind === 'album'
-      ? { title: r.collectionName || '', artist: r.artistName || '', link: r.collectionViewUrl || '', id: r.collectionId != null ? String(r.collectionId) : '', thumb: r.artworkUrl100 || '' }
+      // stripReleaseKind here too: an iTunes album hit can become the
+      // canonicalTitle that lands back in the title field, and a "- Single"
+      // written back there makes the next Deezer round miss all over again.
+      ? { title: stripReleaseKind(r.collectionName || ''), artist: r.artistName || '', link: r.collectionViewUrl || '', id: r.collectionId != null ? String(r.collectionId) : '', thumb: r.artworkUrl100 || '' }
       : { title: r.trackName || '', artist: r.artistName || '', link: r.trackViewUrl || '', id: r.trackId != null ? String(r.trackId) : '', thumb: r.artworkUrl100 || '' }))
     .filter((c) => c.title && c.link);
 }

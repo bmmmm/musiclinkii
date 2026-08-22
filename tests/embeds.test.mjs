@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseInput } from '../js/parsers.mjs';
-import { embedFor, appLinkFor } from '../js/embeds.mjs';
+import { embedFor, appLinkFor, appLinkForCodeSearch } from '../js/embeds.mjs';
 import { mapUrlsToPlatforms } from '../js/adapters.mjs';
 
 const parse = (url) => parseInput(url);
@@ -63,6 +63,28 @@ test('mapUrlsToPlatforms maps MusicBrainz URL relations onto cards', () => {
   });
   assert.deepEqual(mapUrlsToPlatforms([]), {});
   assert.deepEqual(mapUrlsToPlatforms(['https://example.com/x']), {});
+});
+
+// Verified in the Spotify desktop app 2026-08-22: the isrc: filter opens
+// the app on the exact track; the bare code without the filter opens an
+// empty search. The filter is load-bearing, not decoration.
+test('appLinkForCodeSearch: Spotify ISRC search reaches the app', () => {
+  assert.equal(
+    appLinkForCodeSearch('spotify', { isrc: 'USUM71703088', kind: 'track' }).href,
+    'spotify:search:isrc%3AUSUM71703088'
+  );
+});
+
+test('appLinkForCodeSearch: nothing without a usable code search', () => {
+  // Albums: Spotify's upc: filter is measured dead, so there is nothing to link.
+  assert.equal(appLinkForCodeSearch('spotify', { upc: '724384960650', kind: 'album' }), null);
+  assert.equal(appLinkForCodeSearch('spotify', { isrc: 'USUM71703088', kind: 'album' }), null);
+  // No code at all → a plain text search, which the normal card link covers.
+  assert.equal(appLinkForCodeSearch('spotify', { kind: 'track' }), null);
+  // Other platforms have no documented search scheme.
+  assert.equal(appLinkForCodeSearch('tidal', { isrc: 'USUM71703088', kind: 'track' }), null);
+  assert.equal(appLinkForCodeSearch('youtubeMusic', { isrc: 'USUM71703088', kind: 'track' }), null);
+  assert.equal(appLinkForCodeSearch('spotify', null), null);
 });
 
 test('appLinkFor: only documented schemes (Spotify) plus Deezer best effort', () => {

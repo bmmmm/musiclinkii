@@ -82,13 +82,16 @@ export async function enrichByCode(codeKind, { state, gen, render, setPhase }) {
     if (!code || state[checkedKey] === code) return false;
     state[checkedKey] = code;
     setPhase('Checking MusicBrainz for exact links');
-    // The album path spends a throttled MB call per release — tell it what
-    // is still open so it can stop once nothing is (the ISRC path is a
-    // single call and ignores the hint).
-    const links = await cfg.findLinks(code, missingMbKeys(state));
+    // Both paths spend throttled MB calls — tell them what is still open
+    // so they can stop once nothing is. The album path uses it to end the
+    // barcode cascade early; the track path to decide whether a release
+    // lookup could still add anything the recording lacked.
+    const { links, throttled } = await cfg.findLinks(code, missingMbKeys(state));
     if (gen !== state.generation) return false;
     if (mergeExactLinks(state, links)) render();
-    return false;
+    // A 503 inside the cascade no longer hides behind an empty map: the
+    // links it cost are real, and the user gets told to try again.
+    return throttled;
   } catch (err) {
     // Best effort either way — the search links stay. The caller only
     // needs to know whether the gap is MusicBrainz's fault.

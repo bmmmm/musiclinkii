@@ -4,7 +4,7 @@
 
 import { PLATFORMS, buildQuery } from './links.mjs';
 import { parseInput } from './parsers.mjs';
-import { embedFor, appLinkFor } from './embeds.mjs';
+import { embedFor, appLinkFor, appLinkForCodeSearch } from './embeds.mjs';
 
 // → [{ key, name, badge, url, embed, app }] in PLATFORMS order.
 export function cardModels({ exact, sourceKeys, kind, isrc, upc, pending }, { artist, title }, region, dark) {
@@ -38,7 +38,11 @@ export function cardModels({ exact, sourceKeys, kind, isrc, upc, pending }, { ar
       viaCode: Boolean(code),
       codeKind: code,
       embed: entity ? embedFor(entity, dark) : null,
-      app: entity ? appLinkFor(entity) : null,
+      // Without an exact entity there is still one deep link worth offering:
+      // an ISRC search card resolves to the exact track inside the app.
+      // Keyed off `code` so the app button appears exactly when the badge
+      // says the card searches by code — the two can never disagree.
+      app: entity ? appLinkFor(entity) : (code === 'isrc' ? appLinkForCodeSearch(p.key, parts) : null),
       // A pending card by definition has no exact URL, hence no embed —
       // the flag flipping can never tear down an open preview iframe.
       pending: !exactUrl && pendingSet.has(p.key),

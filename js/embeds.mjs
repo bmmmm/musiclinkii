@@ -61,6 +61,27 @@ export function embedFor(parsed, dark = false) {
 // spotify: is IANA-registered and officially documented; deezer:// is
 // long-standing community practice (best effort). Everything else has no
 // reliable scheme; https universal links already open those apps on mobile.
+// The same idea for a card that has no exact link: Spotify's own isrc:
+// filter lands on exactly the right track, and the spotify: scheme always
+// reaches the app — the https link only does where the OS honours it as a
+// universal link (verified on macOS 2026-08-22, but that is one platform's
+// behaviour, not a guarantee).
+//
+// Verified in the Spotify desktop app 2026-08-22: `spotify:search:` with
+// the isrc: filter opens the app on the right track, both with the colon
+// percent-encoded and raw. The BARE code without the filter opens an
+// empty/wrong search — so the filter is mandatory, don't "simplify" it away.
+// Tracks only: Spotify's upc: filter is measured dead (ENDPOINTS.md), so
+// an album has no code search to offer.
+export function appLinkForCodeSearch(key, parts) {
+  if (key !== 'spotify' || !parts?.isrc) return null;
+  if ((parts.kind || 'track') !== 'track') return null;
+  return {
+    href: `spotify:search:${encodeURIComponent(`isrc:${parts.isrc}`)}`,
+    title: 'Search by ISRC in the Spotify app — nothing happens if it isn’t installed',
+  };
+}
+
 export function appLinkFor(parsed) {
   if (!parsed?.ok) return null;
   if (parsed.platform === 'spotify' && ['track', 'album', 'artist', 'playlist'].includes(parsed.kind)) {
