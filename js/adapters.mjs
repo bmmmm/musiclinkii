@@ -114,8 +114,24 @@ export function isThrottled(err) {
   return /HTTP 503/.test(String(err));
 }
 
+// German gendered forms: the catalogs disagree on whether a name carries
+// them. Apple localises "Various Artists" into the storefront language and
+// genders it ("Verschiedene Interpret:innen"), Deezer lists the generic
+// "Verschiedene Interpreten" — and the token subset test then fails on a
+// separator that normalize() had turned into its own word. Folded back to
+// the generic form BEFORE that punctuation pass, and before the lowercase,
+// so the internal-I spelling is still recognisable. A stem already ending
+// in -er/-el/-en is its own plural ("Kuenstler:innen" -> "Kuenstler"), the
+// rest take -en ("Interpret:innen" -> "Interpreten"). The separatorless
+// form is honoured for the plural only: "LinkedIn" must survive it.
+const GENDERED = /(\p{L}{2,}?)(?:[:*_\u00b7][Ii]nnen\b|[:*_\u00b7][Ii]n\b|Innen\b)/gu;
+
+function degender(s) {
+  return s.replace(GENDERED, (_m, stem) => (/(?:er|el|en)$/i.test(stem) ? stem : stem + 'en'));
+}
+
 function normalize(s) {
-  return String(s || '')
+  return degender(String(s || ''))
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
@@ -733,6 +749,44 @@ async function deezerSearch(kind, query) {
   return deezerCandidates(data, kind);
 }
 
+// The lead artist of a featuring credit — the split points Apple and Deezer
+// both use to join contributors.
+export function primaryArtist(artist) {
+  const raw = String(artist || '').trim();
+  return raw.split(/\s*,\s*|\s+&\s+|\s+(?:feat|ft|featuring|with)\.?\s+/i)[0].trim() || raw;
+}
+
+// Deezer's relevance ranking drops the right release when the query is too
+// specific. Measured 2026-08-22 over 30 Apple album links: the full credit
+// "Fred again.., Danny Brown, BEAM, PARISI & JPEGMAFIA — OK OK" returned
+// three candidates, none of them the release; "Fred again.. OK OK" returned
+// five and hit. So the query degrades in stages until one of them matches.
+export function deezerQueries(artist, qTitle) {
+  const full = `${artist} ${qTitle}`.trim();
+  const primary = `${primaryArtist(artist)} ${qTitle}`.trim();
+  const stages = [full];
+  if (primary !== full) stages.push(primary);
+  if (qTitle && qTitle !== full) stages.push(qTitle);
+  return stages;
+}
+
+// What degrades is the QUERY, never the acceptance: every stage still runs
+// pickByArtist against the FULL artist, because a title-only search hands
+// back strangers ("OK OK" ranks OT7 Quanny first). A wrong exact link costs
+// more than a missing one — it lands on the card as a fact.
+//
+// Deezer is not rate-limited the way MusicBrainz and iTunes are, and only a
+// miss pays for the extra call: the first stage that hits ends the cascade.
+// A rejection still propagates on the spot — Deezer being down is not a
+// miss to widen the query for.
+async function deezerCascade(kind, artist, title, qTitle) {
+  for (const q of deezerQueries(artist, qTitle)) {
+    const hit = pickByArtist(await deezerSearch(kind, q), artist, title);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 // iTunes rate-limits hard (bursts of 403s) — after a rejection, skip iTunes
 // for a minute instead of hammering. Returns null for "no signal" (failed
 // or cooling down) and [] for "searched, found nothing" — callers branch
@@ -975,17 +1029,18 @@ export async function findExactLinks({ artist, title, kind = 'track' }, region, 
 
   if (!artist) return resolveTitleOnly(kind, title, region);
 
-  const query = `${artist} ${searchableTitle(title)}`.trim();
+  const qTitle = searchableTitle(title);
+  const query = `${artist} ${qTitle}`.trim();
   // An Apple-source card keeps the pasted link, so the iTunes result would
   // be discarded — skip the request: every needless iTunes call burns the
   // shared rate-limit budget. The Deezer search always runs: its match is
   // what unlocks the ISRC/UPC derivation for non-Deezer sources.
   const [dz, it] = await Promise.allSettled([
-    deezerSearch(kind, query),
+    deezerCascade(kind, artist, title, qTitle),
     sourceKeys.includes('appleMusic') ? null : itunesSearch(kind, query, region),
   ]);
   const out = {};
-  const d = dz.status === 'fulfilled' ? pickByArtist(dz.value, artist, title) : null;
+  const d = dz.status === 'fulfilled' ? dz.value : null;
   if (d) {
     out.deezer = d.link;
     out.canonicalArtist = d.artist;

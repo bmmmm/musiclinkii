@@ -8,6 +8,7 @@ import {
   deezerCandidates, itunesCandidates, pickByArtist, strictTitleHits, artistCandidates,
   pickByName, pickMbArtist, mapUrlsToPlatforms, expandArtistAnchor, relsConfirmAnchor,
   titlesOverlap, confirmByCatalog, probeNamesakes, namesakeChipLabel, unmetNeed, isThrottled,
+  primaryArtist, deezerQueries,
 } from '../js/adapters.mjs';
 
 // Decides whether the user gets a rate-limit line. A 404 is the normal
@@ -75,6 +76,60 @@ test('looselyMatches is token-based, not substring-based', () => {
   assert.equal(looselyMatches('a-ha', 'a‐ha'), true);
   assert.equal(looselyMatches('Sigur Rós', 'sigur ros'), true);
   assert.equal(looselyMatches('', 'anything'), false);
+});
+
+// Apple localises "Various Artists" into the storefront language and genders
+// it; Deezer carries the generic form. Live pair: Apple "Verschiedene
+// Interpret:innen" vs Deezer "Verschiedene Interpreten".
+test('looselyMatches folds German gendered forms onto the generic one', () => {
+  for (const gendered of [
+    'Verschiedene Interpret:innen',
+    'Verschiedene Interpret*innen',
+    'Verschiedene Interpret_innen',
+    'Verschiedene InterpretInnen',
+  ]) assert.equal(looselyMatches(gendered, 'Verschiedene Interpreten'), true, gendered);
+  // A stem already ending in -er is its own plural — no "Kuenstleren".
+  assert.equal(looselyMatches('K\u00fcnstler:innen', 'K\u00fcnstler'), true);
+  assert.equal(looselyMatches('S\u00e4nger*in', 'S\u00e4nger'), true);
+  // The fold must not buy laxness anywhere else: the separatorless spelling
+  // is honoured for the plural only, so a capital-I word survives it.
+  assert.equal(looselyMatches('LinkedIn', 'Linkeden'), false);
+  assert.equal(looselyMatches('Kitchen', 'Kitchenware & Candybars'), false);
+  assert.equal(looselyMatches('Interpreten', 'Interpretation'), false);
+});
+
+test('primaryArtist keeps the lead of a featuring credit', () => {
+  assert.equal(primaryArtist('Fred again.., Danny Brown, BEAM, PARISI & JPEGMAFIA'), 'Fred again..');
+  assert.equal(primaryArtist('Calvin Harris feat. Dua Lipa'), 'Calvin Harris');
+  assert.equal(primaryArtist('Drake ft Rihanna'), 'Drake');
+  assert.equal(primaryArtist('Kygo with Selena Gomez'), 'Kygo');
+  // A solo credit is its own lead, and a name that IS an ampersand pair is
+  // only split for the query — pickByArtist still checks the full credit.
+  assert.equal(primaryArtist('The Weeknd'), 'The Weeknd');
+  assert.equal(primaryArtist('  '), '');
+});
+
+// The cascade widens the query in stages and stops adding stages it would
+// only repeat.
+test('deezerQueries degrades full credit to lead artist to title', () => {
+  assert.deepEqual(
+    deezerQueries('Fred again.., Danny Brown', 'OK OK'),
+    ['Fred again.., Danny Brown OK OK', 'Fred again.. OK OK', 'OK OK']
+  );
+  assert.deepEqual(deezerQueries('The Weeknd', 'Blinding Lights'),
+    ['The Weeknd Blinding Lights', 'Blinding Lights']);
+});
+
+// D3: the cascade widens the QUERY, never the acceptance. A title-only
+// query returns strangers — measured, "OK OK" ranks OT7 Quanny first — and
+// pickByArtist still runs against the full credit, so they stay rejected.
+test('a title-only stage still rejects a foreign artist', () => {
+  const cands = [
+    { title: 'OK OK', artist: 'OT7 Quanny', link: 'wrong', id: '1' },
+    { title: 'OK OK', artist: 'Fred again..', link: 'right', id: '2' },
+  ];
+  assert.equal(pickByArtist(cands, 'Fred again.., Danny Brown', 'OK OK')?.link, 'right');
+  assert.equal(pickByArtist([cands[0]], 'Fred again.., Danny Brown', 'OK OK'), null);
 });
 
 test('searchableTitle strips bracketed noise and quotes', () => {
