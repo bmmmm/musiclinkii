@@ -6,7 +6,7 @@
 // not, which is why this file is the slow one in the suite.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findLinksByUpc, findLinksByArtist, findLinksByIsrc } from '../js/adapters.mjs';
+import { findLinksByUpc, findLinksByArtist, findLinksByIsrc, setMbRetryListener } from '../js/adapters.mjs';
 import { enrichByCode } from '../js/enrich.mjs';
 
 // Measured 2026-08-21, barcode:724384960650 (Daft Punk — Discovery): the
@@ -166,6 +166,57 @@ test('a failed release lookup keeps the recording links', async () => {
   // whose failure must not take the Spotify link down with it.
   const { links } = await findLinksByIsrc('GBARL9300135', ['spotify', 'tidal', 'qobuz']);
   assert.equal(links.spotify, 'https://open.spotify.com/track/0Jcij1eWd5bDMU5iPbxe2i');
+});
+
+// --- The retry hourglass. It is a report, not decoration: it may only turn
+// while a retry is really in flight, and it must ALWAYS be switched off
+// again — a spinner left running would claim work that stopped.
+
+// Answers `statuses` in order, so a 503 can be followed by a 200.
+function stubSequence(statuses, body = { recordings: [] }) {
+  let i = 0;
+  globalThis.fetch = async () => {
+    const status = statuses[Math.min(i++, statuses.length - 1)];
+    return { ok: status < 400, status, json: async () => body };
+  };
+}
+
+test('the hourglass turns for a retry and is switched off again', async () => {
+  const seen = [];
+  setMbRetryListener((active) => seen.push(active));
+  stubSequence([503, 200]);
+  await findLinksByIsrc('GBARL9300135');
+  assert.deepEqual(seen, [true, false], 'on before the wait, off after the retry');
+  setMbRetryListener(null);
+});
+
+test('a retry that fails again still switches the hourglass off', async () => {
+  const seen = [];
+  setMbRetryListener((active) => seen.push(active));
+  stubSequence([503, 503]);
+  // The second 503 propagates; the listener must not be left hanging on true.
+  const { throttled } = await findLinksByIsrc('GBARL9300135').catch(() => ({ throttled: true }));
+  assert.equal(throttled, true);
+  assert.deepEqual(seen, [true, false], 'the finally clause owns the off switch');
+  setMbRetryListener(null);
+});
+
+test('a call that succeeds never turns the hourglass on', async () => {
+  const seen = [];
+  setMbRetryListener((active) => seen.push(active));
+  stubSequence([200]);
+  await findLinksByIsrc('DEN120003766');
+  assert.deepEqual(seen, [], 'no retry, no spinner');
+  setMbRetryListener(null);
+});
+
+test('a 404 is not a retry — the hourglass stays off', async () => {
+  const seen = [];
+  setMbRetryListener((active) => seen.push(active));
+  stubSequence([404]);
+  await findLinksByIsrc('QZDZE1905106').catch(() => {});
+  assert.deepEqual(seen, []);
+  setMbRetryListener(null);
 });
 
 // --- What enrichByCode reports back. The 503/404 split is the whole

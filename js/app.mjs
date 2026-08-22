@@ -8,7 +8,7 @@ import { parseInput, looksLikeLink } from './parsers.mjs';
 import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
 import {
   fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist, parseFreeText,
-  namesakeChipLabel,
+  namesakeChipLabel, setMbRetryListener,
 } from './adapters.mjs';
 import { enrichByCode, mergeExactLinks } from './enrich.mjs';
 import { cardModels, cardSignature } from './cards.mjs';
@@ -107,17 +107,47 @@ function setNote(text) {
 // 2026-08-21). Same shape as the iTunes rate-limit hint on the chips line.
 // A standing note is never overwritten: a source caveat is more specific
 // than this one, and a re-commit re-runs the lookup anyway.
+// No time estimate on purpose: measured 2026-08-22, MusicBrainz reports a
+// one-second window, sends no Retry-After, and its remaining quota moves
+// with every other anonymous client — "try again in a minute" was a guess,
+// and often a pessimistic one (a retry seconds later routinely lands). A
+// button beats a number nobody can compute: the user decides when.
 function noteMbThrottled() {
   if (el.note.textContent) return;
-  setNote('MusicBrainz is rate-limiting — some exact links may be missing. Try again in a minute.');
+  setNote('MusicBrainz is rate-limiting — some exact links may be missing.');
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'note-action';
+  retry.textContent = 'Try again';
+  // A fields commit re-runs the lookup with the artist/title on screen; a
+  // 503 is never cached, so this really does ask MusicBrainz again.
+  retry.addEventListener('click', commitFromFields);
+  el.note.appendChild(retry);
 }
 
 // Progress line for a lookup phase, with animated dots. Always writes —
-// warnings and chips live on their own lines.
-function setPhase(text) {
+// warnings and chips live on their own lines. `busy` selects the marker:
+// '1' is the plain phase, 'retry' adds the turning hourglass.
+function setPhase(text, busy = '1') {
   setStatus(text);
-  el.status.dataset.busy = '1';
+  el.status.dataset.busy = busy;
 }
+
+// The hourglass turns only while a MusicBrainz retry is really in flight —
+// it is a report, not a placeholder. The phase it interrupts is restored
+// afterwards, so a retry in the middle of "Checking MusicBrainz for exact
+// links" does not swallow that line.
+let phaseBeforeRetry = null;
+setMbRetryListener((active) => {
+  if (active) {
+    phaseBeforeRetry = el.status.textContent;
+    setPhase('MusicBrainz is rate-limiting — trying again', 'retry');
+  } else {
+    if (phaseBeforeRetry) setPhase(phaseBeforeRetry);
+    else clearPhase();
+    phaseBeforeRetry = null;
+  }
+});
 
 // Phase lines are transient: if one is still standing when the pipeline
 // ends (error, early return), drop it — outcomes write their own line.

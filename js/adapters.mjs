@@ -55,6 +55,18 @@ function jsonp(url, timeoutMs = TIMEOUT_MS) {
 const MB_GAP_MS = 1100;
 let mbChain = Promise.resolve();
 let mbLast = 0;
+// The retry below runs three layers beneath the renderer, and it is the one
+// wait worth showing rather than guessing at. Measured 2026-08-22: the
+// rate-limit window MusicBrainz reports is ONE second, `x-ratelimit-remaining`
+// moves independently of our own calls (the quota is shared with every other
+// anonymous client) and there is no Retry-After header at all. So a 503 tells
+// us nothing about how long it lasts — a countdown would be inventing a
+// number. This announces only that a retry is genuinely in flight.
+let onMbRetry = null;
+export function setMbRetryListener(fn) {
+  onMbRetry = typeof fn === 'function' ? fn : null;
+}
+
 function mbJson(pathAndQuery) {
   const run = mbChain.then(async () => {
     const wait = mbLast + MB_GAP_MS - Date.now();
@@ -71,9 +83,16 @@ function mbJson(pathAndQuery) {
       // 2026-08-20: one of three spaced calls throttled) — a single
       // longer-spaced retry recovers those without hammering.
       if (!/HTTP 503/.test(String(err))) throw err;
-      await new Promise((r) => setTimeout(r, MB_GAP_MS * 2));
-      mbLast = Date.now();
-      return getJson(url, { cache: 'no-store' });
+      // Announced around the whole wait, and cleared in `finally` so a
+      // retry that fails again cannot leave the hourglass spinning forever.
+      onMbRetry?.(true);
+      try {
+        await new Promise((r) => setTimeout(r, MB_GAP_MS * 2));
+        mbLast = Date.now();
+        return await getJson(url, { cache: 'no-store' });
+      } finally {
+        onMbRetry?.(false);
+      }
     }
   });
   mbChain = run.then(() => {}, () => {});

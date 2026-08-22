@@ -156,8 +156,44 @@ h1 {
   75% { content: '...'; }
 }
 
+/* A turning hourglass while a throttled MusicBrainz call is being retried.
+   It marks a real request in flight — there is no countdown behind it,
+   because MusicBrainz sends no Retry-After and its window is one second. */
+.line[data-busy='retry']::before {
+  display: inline-block;
+  margin-right: 0.4em;
+  content: '⌛';
+  animation: hourglass 3s ease-in-out infinite;
+}
+
+/* A real hourglass is turned over, not spun: it rests, flips, rests. A
+   continuous rotation reads as a generic spinner and sits skewed most of
+   the time. Two half-turns per cycle end upright again. */
+@keyframes hourglass {
+  0%, 40% { transform: rotate(0deg); }
+  50%, 90% { transform: rotate(180deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* "Try again" next to the throttle warning: a button, not a wait. */
+.note-action {
+  margin-left: 0.5em;
+  padding: 0.1rem 0.5rem;
+  font: inherit;
+  font-size: 0.86rem;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.note-action:hover { background: rgb(192 122 28 / 0.12); }
+
 @media (prefers-reduced-motion: reduce) {
   .line[data-busy]::after { animation: none; }
+  /* The hourglass still marks the retry — it just stops turning. */
+  .line[data-busy='retry']::before { animation: none; }
 }
 
 /* One-click artist suggestions inside the status line */
