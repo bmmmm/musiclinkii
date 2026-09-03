@@ -16,6 +16,11 @@ Status: preliminary feasibility result, not a production accuracy claim.
 The images and live manifest remain under `.cache/vinyl-benchmark/` and are not
 committed.
 
+This developer-only corpus is not a production import path. The application
+continues to process only an image explicitly selected by the person using the
+scanner, entirely in that browser; the visual fallback must not add an image
+upload or proxy.
+
 ## Measured in Chrome
 
 Model: `Xenova/dinov2-small`, Transformers.js 4.2.0, q4 weights, 384-dimensional

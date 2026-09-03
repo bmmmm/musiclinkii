@@ -21,6 +21,11 @@ Everything runs in your browser — there is no backend:
    Only the recognized text becomes a catalog query; the image is never
    uploaded. The OCR runtime and English model are lazy-loaded on the first
    scan, so the normal link workflow pays no download cost.
+   Every image starts with an explicit action by the person using the page.
+   Image URLs are fetched directly by that browser with a GET request; there is
+   no upload endpoint, proxy, automatic cover selection or background import.
+   The visual fallback must preserve this boundary: embed the selected image
+   locally and compare it with a separately downloaded static vector index.
 3. **Resolve** — title and artist are fetched from keyless public endpoints
    that allow cross-origin requests (verified empirically):
    [iTunes Lookup/Search](https://performance-partners.apple.com/search-api),

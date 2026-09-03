@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  extractOcrLines, buildOcrQueries, pastedImage, rankOcrAlbumCandidates,
+  extractOcrLines, buildOcrQueries, fetchImage, pastedImage, rankOcrAlbumCandidates,
 } from '../js/vinyl-scan.mjs';
 
 test('OCR lines discard sleeve boilerplate without discarding label names', () => {
@@ -100,4 +100,23 @@ test('an image clipboard item is separated from ordinary pasted text', () => {
   ] };
   assert.equal(pastedImage(clipboard), image);
   assert.equal(pastedImage({ items: clipboard.items.slice(0, 1) }), null);
+});
+
+test('an image URL is fetched directly by the client without an upload body', async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, init) => {
+    request = { url, init };
+    return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/jpeg' } });
+  };
+  try {
+    const image = await fetchImage('https://covers.example/user-selected.jpg');
+    assert.equal(image.type, 'image/jpeg');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(request, {
+    url: 'https://covers.example/user-selected.jpg',
+    init: undefined,
+  });
 });

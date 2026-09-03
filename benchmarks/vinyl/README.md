@@ -4,6 +4,21 @@ This benchmark answers one narrow question: can a compact visual index recover
 the correct vinyl release from a phone-like cover image when OCR is insufficient?
 It does not replace OCR. It measures the proposed fallback independently.
 
+## Product boundary
+
+The dataset sampler is developer tooling. It is never loaded or invoked by the
+musiclinkii application and must not choose an image for the person using the
+scanner.
+
+In the product, an image may enter the scanner only through an explicit camera,
+file, paste, or URL action. Camera, file, and clipboard bytes stay inside that
+browser; a URL is fetched directly from the exact host the person entered. No
+image is posted to musiclinkii, sent through a proxy, inferred from browsing
+history, or imported in the background. The visual model and a static reference
+index may be downloaded, but only the locally derived query vector is compared
+with that index. Persistence in IndexedDB would require a separate, explicit
+save action.
+
 ## Data path
 
 The sampler uses only documented public paths:
