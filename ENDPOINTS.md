@@ -18,6 +18,19 @@ album-search endpoint. An image URL is fetched directly from the supplied
 host and therefore requires that host to allow browser CORS; the UI explains
 the save-and-choose fallback when it does not.
 
+## On-demand visual comparison assets
+
+Visual comparison is a separate, explicit click shown only for two to five OCR
+candidates that all have artwork. The selected image is passed to the model as
+a local `blob:` URL. It is never used as a request body or remote URL, and the
+comparison only reorders candidates — the person scanning still confirms one.
+
+| Endpoint | Purpose | Data sent | Verified | Code | Where to look on breakage |
+|---|---|---|---|---|---|
+| `cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0` | pinned Transformers.js ESM runtime, loaded after the visual-compare click | ordinary asset request, **never the selected image** | 2026-09-04 (real Chrome comparison) | `js/visual-match.mjs` `loadExtractor` | [Transformers.js documentation](https://huggingface.co/docs/transformers.js) |
+| `huggingface.co/Xenova/dinov2-small/resolve/main/…` | q4 DINOv2-small configuration, processor and ONNX weights; conversion of Meta's Apache-2.0 base model; browser-cached | ordinary model asset requests, **never the selected image** | 2026-09-04 (real Chrome comparison) | `js/visual-match.mjs` `loadExtractor` | [conversion files](https://huggingface.co/Xenova/dinov2-small), [base-model license](https://huggingface.co/facebook/dinov2-small) |
+| `cdn-images.dzcdn.net/images/cover/…` | reference thumbnails for the already visible Deezer OCR candidates | direct GET with no body and `no-referrer`; **never the selected image** | 2026-09-04 (five-candidate Chrome comparison, CORS allowed) | `js/visual-match.mjs` `referenceBlob` | fall back to the unchanged OCR order; thumbnail URLs originate in `deezerCandidates` |
+
 ## Metadata APIs (called from the browser)
 
 | Endpoint | Purpose | Auth | CORS | Verified | Code | Where to look on breakage |

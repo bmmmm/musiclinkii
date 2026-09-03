@@ -54,3 +54,17 @@ brightness, glare, and JPEG changes, and there were only 11 distractors per
 query. The next gate is a held-out set of real phone photos, including sleeves,
 wear, stickers, partial occlusion, reflections, and multiple pressings that use
 identical artwork. Until that gate exists, this remains a technical spike.
+
+## Product integration check — 2026-09-04
+
+The first production slice reranks only an explicit set of two to five OCR
+candidates. In Chrome, a Queen `Greatest Hits II` catalog cover began at rank 2
+for the deliberately ambiguous text `Queen Greatest Hits`; after the optional
+local comparison it moved to rank 1 among five candidates. A `Greatest Hits`
+cover stayed at rank 1 in the corresponding control. Both runs fetched five
+Deezer thumbnails without CORS or console errors, and neither selected the
+album until its candidate button was clicked.
+
+This verifies the application wiring and a real correction, not phone-camera
+accuracy: both query images were clean 500 px catalog covers. Zero-text covers
+still need the separately shippable global vector index tested above.

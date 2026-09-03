@@ -17,6 +17,7 @@ import {
   buildOcrQueries, fetchImage, pastedImage, rankOcrAlbumCandidates,
   readClipboardImage, recognizeVinylText,
 } from './vinyl-scan.mjs';
+import { canRerankVisually, rerankVinylCandidates } from './visual-match.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -856,6 +857,7 @@ function setKind(kind) {
 let scanGeneration = 0;
 let scanPreviewUrl = '';
 let scanBusy = false;
+let scanSourceBlob = null;
 
 function setScanStatus(text, tone = 'info') {
   setLine(el.scanStatus, text, tone);
@@ -863,7 +865,10 @@ function setScanStatus(text, tone = 'info') {
 
 function setScanBusy(busy) {
   scanBusy = busy;
-  for (const node of [el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind]) {
+  for (const node of [
+    el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind,
+    ...el.scanCandidates.querySelectorAll('button'),
+  ]) {
     node.disabled = busy;
   }
   const submit = el.scanUrlForm.querySelector('button[type="submit"]');
@@ -880,6 +885,7 @@ function resetVinylScanner() {
   setScanBusy(false);
   if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
   scanPreviewUrl = '';
+  scanSourceBlob = null;
   el.scanPreview.removeAttribute('src');
   el.scanPreview.hidden = true;
   el.scanText.value = '';
@@ -907,13 +913,48 @@ function scanProgress(message) {
   setScanStatus(label + percent);
 }
 
-function renderScanCandidates(candidates) {
+function visualProgress(message) {
+  if (message.stage === 'model') {
+    setScanStatus(`Loading visual model ${message.percent}%`);
+  } else if (message.stage === 'query') {
+    setScanStatus('Analyzing selected cover locally');
+  } else if (message.stage === 'reference') {
+    setScanStatus(`Comparing catalog artwork ${message.current}/${message.total}`);
+  }
+}
+
+async function compareScanArtwork(candidates, gen) {
+  if (scanBusy || !scanSourceBlob || gen !== scanGeneration) return;
+  setScanBusy(true);
+  try {
+    const ranked = await rerankVinylCandidates(scanSourceBlob, candidates, { onProgress: visualProgress });
+    if (gen !== scanGeneration) return;
+    renderScanCandidates(ranked);
+    setScanStatus('Artwork compared locally. Choose the right album.');
+  } catch {
+    if (gen === scanGeneration) {
+      setScanStatus('Artwork comparison is unavailable. The OCR order is unchanged.', 'warn');
+    }
+  } finally {
+    if (gen === scanGeneration) setScanBusy(false);
+  }
+}
+
+function renderScanCandidates(candidates, { offerVisualComparison = false } = {}) {
   el.scanCandidates.replaceChildren();
   if (!candidates.length) return;
   const prompt = document.createElement('p');
   prompt.className = 'scan-privacy';
   prompt.textContent = 'Possible matches — choose the right album:';
   el.scanCandidates.appendChild(prompt);
+  if (offerVisualComparison && canRerankVisually(candidates)) {
+    const compare = document.createElement('button');
+    compare.type = 'button';
+    compare.className = 'btn scan-compare';
+    compare.textContent = 'Compare cover artwork locally (downloads model once)';
+    compare.addEventListener('click', () => compareScanArtwork(candidates, scanGeneration));
+    el.scanCandidates.appendChild(compare);
+  }
   for (const candidate of candidates) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -952,7 +993,7 @@ async function searchRecognizedText(text, gen = scanGeneration) {
   const rawCandidates = await findOcrAlbumCandidates(queries);
   if (gen !== scanGeneration) return;
   const candidates = rankOcrAlbumCandidates(rawCandidates, text);
-  renderScanCandidates(candidates);
+  renderScanCandidates(candidates, { offerVisualComparison: true });
   setScanStatus(candidates.length
     ? `${candidates.length} possible ${candidates.length === 1 ? 'match' : 'matches'} found.`
     : 'No album match found. Correct the recognized text or try another photo.',
@@ -966,6 +1007,7 @@ async function scanImage(blob) {
   renderScanCandidates([]);
   el.scanText.value = '';
   el.scanTextWrap.hidden = true;
+  scanSourceBlob = blob;
   if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
   scanPreviewUrl = URL.createObjectURL(blob);
   el.scanPreview.src = scanPreviewUrl;

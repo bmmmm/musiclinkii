@@ -238,6 +238,8 @@ h1 {
   margin-top: 0.8rem;
 }
 
+.scan-compare { justify-self: start; margin-bottom: 0.2rem; }
+
 .scan-candidate {
   display: flex;
   align-items: center;

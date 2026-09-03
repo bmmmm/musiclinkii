@@ -24,8 +24,10 @@ Everything runs in your browser — there is no backend:
    Every image starts with an explicit action by the person using the page.
    Image URLs are fetched directly by that browser with a GET request; there is
    no upload endpoint, proxy, automatic cover selection or background import.
-   The visual fallback must preserve this boundary: embed the selected image
-   locally and compare it with a separately downloaded static vector index.
+   If OCR leaves multiple candidates, an optional second click downloads
+   [DINOv2-small](https://huggingface.co/Xenova/dinov2-small), embeds the
+   selected image locally and reorders the catalog covers by visual similarity.
+   It still never selects an album without confirmation.
 3. **Resolve** — title and artist are fetched from keyless public endpoints
    that allow cross-origin requests (verified empirically):
    [iTunes Lookup/Search](https://performance-partners.apple.com/search-api),
@@ -63,8 +65,10 @@ input switches between **Track / Album / Artist** searches — artist
 searches match via the Deezer/iTunes artist catalogs and MusicBrainz
 artist URL relations. The vinyl scanner is an OCR-first alternative input:
 it always shows album candidates for confirmation and never silently picks
-one. Covers without readable text remain a known miss until the visual-search
-fallback is added.
+one. When OCR finds two to five plausible albums with cover art, the person
+scanning can explicitly run local visual comparison to improve their order.
+Covers without enough readable text to produce any catalog candidate remain a
+known miss until the static global vector index is ready.
 
 Short links (`spotify.link`, `link.deezer.com`, `on.soundcloud.com`) can't be
 expanded client-side — open them once and paste the full URL instead.
@@ -139,6 +143,11 @@ workflow refuses to deploy if the markers go missing.
 Brand icons from [simple-icons](https://github.com/simple-icons/simple-icons)
 (CC0-1.0). On-demand text recognition uses
 [Tesseract.js](https://github.com/naptha/tesseract.js) (Apache-2.0).
+Optional local cover comparison uses
+[Transformers.js](https://github.com/huggingface/transformers.js)
+(Apache-2.0) and the Transformers.js-compatible
+[DINOv2-small conversion](https://huggingface.co/Xenova/dinov2-small) of
+[Meta's Apache-2.0 model](https://huggingface.co/facebook/dinov2-small).
 All trademarks belong to their respective owners.
 
 ## Support
