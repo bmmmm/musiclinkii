@@ -4,8 +4,8 @@ One music link in — every platform out.
 
 Paste a track or album link from Spotify, Apple Music, YouTube / YouTube
 Music, Deezer, TIDAL, Amazon Music, SoundCloud or Bandcamp — or just type
-“Artist - Title” — and get links to the same track or album on every other
-streaming platform. Fully static, no server, no tracking.
+“Artist - Title” or scan a vinyl cover — and get links to the same track or
+album on every other streaming platform. Fully static, no server, no tracking.
 
 **Live: <https://bmmmm.github.io/musiclinkii/>**
 
@@ -16,14 +16,19 @@ Everything runs in your browser — there is no backend:
 1. **Parse** — the pasted link is matched against each platform's known URL
    schemes (`open.spotify.com/track/{id}`, `music.apple.com/{sf}/album/…?i={id}`,
    `youtu.be/{id}`, `deezer.com/track/{id}`, `tidal.com/track/{id}`, …).
-2. **Resolve** — title and artist are fetched from keyless public endpoints
+2. **Scan (optional)** — a camera photo, local image, pasted image or image URL
+   is read locally with [Tesseract.js](https://github.com/naptha/tesseract.js).
+   Only the recognized text becomes a catalog query; the image is never
+   uploaded. The OCR runtime and English model are lazy-loaded on the first
+   scan, so the normal link workflow pays no download cost.
+3. **Resolve** — title and artist are fetched from keyless public endpoints
    that allow cross-origin requests (verified empirically):
    [iTunes Lookup/Search](https://performance-partners.apple.com/search-api),
    YouTube oEmbed, Spotify oEmbed, the Deezer API (via JSONP) and
    [MusicBrainz](https://musicbrainz.org/doc/MusicBrainz_API) as a fallback.
    The extracted artist/title stays editable, so a wrong guess is never a
    dead end.
-3. **Link out** — exact matches (marked ✓) are found where a platform offers
+4. **Link out** — exact matches (marked ✓) are found where a platform offers
    keyless search (Deezer, iTunes → Apple Music); every other platform gets an
    honest search link built from its live-verified search URL scheme.
 
@@ -51,7 +56,10 @@ plus catalog matches where Deezer/iTunes agree. Ambiguous titles get
 one-click artist chips instead of a silent guess. The form below the
 input switches between **Track / Album / Artist** searches — artist
 searches match via the Deezer/iTunes artist catalogs and MusicBrainz
-artist URL relations.
+artist URL relations. The vinyl scanner is an OCR-first alternative input:
+it always shows album candidates for confirmation and never silently picks
+one. Covers without readable text remain a known miss until the visual-search
+fallback is added.
 
 Short links (`spotify.link`, `link.deezer.com`, `on.soundcloud.com`) can't be
 expanded client-side — open them once and paste the full URL instead.
@@ -91,7 +99,7 @@ breaks — is catalogued in [ENDPOINTS.md](ENDPOINTS.md).
 
 ## Development
 
-No build step, no dependencies. Serve the directory and open it:
+No build step and no installed dependencies. Serve the directory and open it:
 
 ```sh
 python3 -m http.server 8000
@@ -119,7 +127,9 @@ workflow refuses to deploy if the markers go missing.
 ## Credits
 
 Brand icons from [simple-icons](https://github.com/simple-icons/simple-icons)
-(CC0-1.0). All trademarks belong to their respective owners.
+(CC0-1.0). On-demand text recognition uses
+[Tesseract.js](https://github.com/naptha/tesseract.js) (Apache-2.0).
+All trademarks belong to their respective owners.
 
 ## Support
 

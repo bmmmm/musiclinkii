@@ -8,11 +8,15 @@ import { parseInput, looksLikeLink } from './parsers.mjs';
 import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
 import {
   fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist, parseFreeText,
-  namesakeChipLabel, setMbRetryListener,
+  namesakeChipLabel, setMbRetryListener, findOcrAlbumCandidates,
 } from './adapters.mjs';
 import { enrichByCode, mergeExactLinks } from './enrich.mjs';
 import { cardModels, cardSignature } from './cards.mjs';
 import { iconSvg } from './icons.mjs';
+import {
+  buildOcrQueries, fetchImage, pastedImage, rankOcrAlbumCandidates,
+  readClipboardImage, recognizeVinylText,
+} from './vinyl-scan.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -34,6 +38,20 @@ const el = {
   nextLink: $('#next-link'),
   go: $('#go'),
   openSearch: $('#open-search'),
+  openVinylScan: $('#open-vinyl-scan'),
+  vinylScan: $('#vinyl-scan'),
+  closeVinylScan: $('#close-vinyl-scan'),
+  scanCamera: $('#scan-camera'),
+  scanFile: $('#scan-file'),
+  scanPaste: $('#scan-paste'),
+  scanUrlForm: $('#scan-url-form'),
+  scanUrl: $('#scan-url'),
+  scanPreview: $('#scan-preview'),
+  scanStatus: $('#scan-status'),
+  scanTextWrap: $('#scan-text-wrap'),
+  scanText: $('#scan-text'),
+  scanFind: $('#scan-find'),
+  scanCandidates: $('#scan-candidates'),
   formSearch: $('#form-search'),
   kindToggle: $('#kind-toggle'),
   titleLabel: $('#title-label'),
@@ -609,7 +627,12 @@ async function commitSearch(q) {
       // A fields commit refines the session on screen (source card stays);
       // a main-input commit starts a fresh one.
       resetResults({ keepSource: q.origin === 'fields' && Boolean(state.parsed) });
-      if (!state.parsed) state.kind = q.kind;
+      if (!state.parsed) {
+        state.kind = q.kind;
+        // Programmatic commits (OCR picks, share links) do not click the
+        // toggle first, so the visible pressed state must follow the query.
+        syncKindToggle();
+      }
       syncSurfaces(q);
       writeHash(q);
       syncKindUi();
@@ -645,6 +668,7 @@ function commitFromPick(candidate) {
 function resetAll() {
   state.generation += 1; // invalidate anything in flight
   running = null;
+  resetVinylScanner();
   resetResults();
   state.artistChips = null;
   state.namesakeChips = null;
@@ -825,6 +849,167 @@ function setKind(kind) {
   render();
 }
 
+// --- OCR-first vinyl cover input. The recognizer produces album candidates,
+// never a silent pick. A user click turns the chosen candidate into the same
+// explicit album commit that the text form already understands.
+
+let scanGeneration = 0;
+let scanPreviewUrl = '';
+let scanBusy = false;
+
+function setScanStatus(text, tone = 'info') {
+  setLine(el.scanStatus, text, tone);
+}
+
+function setScanBusy(busy) {
+  scanBusy = busy;
+  for (const node of [el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind]) {
+    node.disabled = busy;
+  }
+  const submit = el.scanUrlForm.querySelector('button[type="submit"]');
+  submit.disabled = busy;
+}
+
+function showVinylScanner() {
+  el.vinylScan.hidden = false;
+  el.openVinylScan.hidden = true;
+}
+
+function resetVinylScanner() {
+  scanGeneration += 1;
+  setScanBusy(false);
+  if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+  scanPreviewUrl = '';
+  el.scanPreview.removeAttribute('src');
+  el.scanPreview.hidden = true;
+  el.scanText.value = '';
+  el.scanTextWrap.hidden = true;
+  el.scanCandidates.replaceChildren();
+  el.scanUrl.value = '';
+  el.scanCamera.value = '';
+  el.scanFile.value = '';
+  setScanStatus('');
+  el.vinylScan.hidden = true;
+  el.openVinylScan.hidden = false;
+}
+
+function scanProgress(message) {
+  const labels = {
+    'loading tesseract core': 'Loading OCR engine',
+    'initializing tesseract': 'Initializing OCR engine',
+    'loading language traineddata': 'Loading English text model',
+    'initializing api': 'Preparing text recognition',
+    'recognizing text': 'Reading cover text',
+  };
+  const label = labels[message?.status] || 'Reading cover text';
+  const progress = Number(message?.progress);
+  const percent = Number.isFinite(progress) && progress > 0 ? ` ${Math.round(progress * 100)}%` : '';
+  setScanStatus(label + percent);
+}
+
+function renderScanCandidates(candidates) {
+  el.scanCandidates.replaceChildren();
+  if (!candidates.length) return;
+  const prompt = document.createElement('p');
+  prompt.className = 'scan-privacy';
+  prompt.textContent = 'Possible matches — choose the right album:';
+  el.scanCandidates.appendChild(prompt);
+  for (const candidate of candidates) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'scan-candidate';
+    if (candidate.thumb) {
+      const image = document.createElement('img');
+      image.src = candidate.thumb;
+      image.alt = '';
+      image.loading = 'lazy';
+      image.referrerPolicy = 'no-referrer';
+      button.appendChild(image);
+    }
+    const copy = document.createElement('span');
+    const title = document.createElement('strong');
+    title.textContent = candidate.title;
+    const artist = document.createElement('small');
+    artist.textContent = candidate.artist;
+    copy.append(title, artist);
+    button.appendChild(copy);
+    button.addEventListener('click', () => {
+      resetVinylScanner();
+      commitSearch({ kind: 'album', artist: candidate.artist, title: candidate.title, origin: 'fields' });
+    });
+    el.scanCandidates.appendChild(button);
+  }
+}
+
+async function searchRecognizedText(text, gen = scanGeneration) {
+  const queries = buildOcrQueries(text);
+  if (!queries.length) {
+    renderScanCandidates([]);
+    setScanStatus('No readable text found. Try a tighter, glare-free photo.', 'warn');
+    return;
+  }
+  setScanStatus('Searching the album catalog');
+  const rawCandidates = await findOcrAlbumCandidates(queries);
+  if (gen !== scanGeneration) return;
+  const candidates = rankOcrAlbumCandidates(rawCandidates, text);
+  renderScanCandidates(candidates);
+  setScanStatus(candidates.length
+    ? `${candidates.length} possible ${candidates.length === 1 ? 'match' : 'matches'} found.`
+    : 'No album match found. Correct the recognized text or try another photo.',
+  candidates.length ? 'info' : 'warn');
+}
+
+async function scanImage(blob) {
+  if (scanBusy) return;
+  const gen = ++scanGeneration;
+  setScanBusy(true);
+  renderScanCandidates([]);
+  el.scanText.value = '';
+  el.scanTextWrap.hidden = true;
+  if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+  scanPreviewUrl = URL.createObjectURL(blob);
+  el.scanPreview.src = scanPreviewUrl;
+  el.scanPreview.hidden = false;
+  try {
+    const result = await recognizeVinylText(blob, (message) => {
+      if (gen === scanGeneration) scanProgress(message);
+    });
+    if (gen !== scanGeneration) return;
+    const text = result.text.trim();
+    el.scanText.value = text;
+    el.scanTextWrap.hidden = !text;
+    await searchRecognizedText(text, gen);
+  } catch (error) {
+    if (gen === scanGeneration) setScanStatus(error?.message || 'The cover could not be scanned.', 'warn');
+  } finally {
+    if (gen === scanGeneration) setScanBusy(false);
+  }
+}
+
+async function scanClipboard() {
+  if (scanBusy) return;
+  try {
+    await scanImage(await readClipboardImage());
+  } catch (error) {
+    setScanStatus(error?.message || 'The clipboard image could not be read.', 'warn');
+  }
+}
+
+async function scanImageUrl(event) {
+  event.preventDefault();
+  if (scanBusy) return;
+  setScanBusy(true);
+  setScanStatus('Loading image');
+  try {
+    const blob = await fetchImage(el.scanUrl.value);
+    setScanBusy(false);
+    await scanImage(blob);
+  } catch (error) {
+    setScanBusy(false);
+    setScanStatus(error?.message || 'The image could not be loaded.', 'warn');
+  }
+}
+
 // --- Listeners. Typing stays quiet everywhere; only commits act.
 
 el.nextLink.addEventListener('click', () => {
@@ -838,7 +1023,9 @@ el.input.addEventListener('input', () => {
   if (el.track.hidden) el.openSearch.hidden = Boolean(el.input.value.trim());
 });
 // Paste is a complete entry — resolve it instantly, no extra click.
-el.input.addEventListener('paste', () => setTimeout(commitFromInput, 0));
+el.input.addEventListener('paste', (event) => {
+  if (!event.defaultPrevented) setTimeout(commitFromInput, 0);
+});
 el.input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commitFromInput(); });
 el.go.addEventListener('click', commitFromInput);
 
@@ -847,6 +1034,42 @@ el.openSearch.addEventListener('click', () => {
   el.track.hidden = false;
   el.artist.focus();
 });
+
+el.openVinylScan.addEventListener('click', () => {
+  showVinylScanner();
+  el.scanUrl.focus();
+});
+el.closeVinylScan.addEventListener('click', resetVinylScanner);
+el.scanPaste.addEventListener('click', scanClipboard);
+el.scanUrlForm.addEventListener('submit', scanImageUrl);
+el.scanFind.addEventListener('click', async () => {
+  if (scanBusy) return;
+  const gen = ++scanGeneration;
+  setScanBusy(true);
+  try {
+    await searchRecognizedText(el.scanText.value, gen);
+  } finally {
+    if (gen === scanGeneration) setScanBusy(false);
+  }
+});
+
+for (const input of [el.scanCamera, el.scanFile]) {
+  input.addEventListener('change', () => {
+    const image = input.files?.[0];
+    input.value = '';
+    if (image) scanImage(image);
+  });
+}
+
+// Capture phase beats the main text input's instant-paste handler: an image
+// paste opens the scanner, while ordinary pasted text keeps its old path.
+document.addEventListener('paste', (event) => {
+  const image = pastedImage(event.clipboardData);
+  if (!image) return;
+  event.preventDefault();
+  showVinylScanner();
+  scanImage(image);
+}, true);
 
 for (const field of [el.artist, el.title]) {
   // Typing only invalidates stale match badges on the visible cards —

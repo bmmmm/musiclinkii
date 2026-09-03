@@ -5,6 +5,19 @@ When something breaks, find the row, check "Where to look", fix the one
 code location. All statuses were verified empirically on the date given
 (browser fetch with a foreign `Origin`, logged-out).
 
+## On-demand OCR assets
+
+| Endpoint | Purpose | Data sent | Verified | Code | Where to look on breakage |
+|---|---|---|---|---|---|
+| `cdn.jsdelivr.net/npm/{tesseract.js,tesseract.js-core}@7.0.0/…` | pinned Tesseract.js browser runtime, worker and WebAssembly core; loaded only after a deliberate vinyl scan | ordinary asset request, **never the cover image** | 2026-09-03 (real Chrome scan) | `js/vinyl-scan.mjs` `loadTesseract`; pinned top-level bundle also has SHA-384 SRI | [Tesseract.js browser/CDN documentation](https://github.com/naptha/tesseract.js#installation) |
+| `tessdata.projectnaptha.com` | English recognition model loaded by the Tesseract worker on the first scan | ordinary asset request, **never the cover image** | 2026-09-03 (real Chrome scan) | `js/vinyl-scan.mjs` `recognizeVinylText` | [Tesseract.js language data](https://github.com/naptha/tessdata) |
+
+The selected local image is reduced to a bounded canvas and OCR runs in a
+Web Worker. Only the resulting text is sent to the already documented Deezer
+album-search endpoint. An image URL is fetched directly from the supplied
+host and therefore requires that host to allow browser CORS; the UI explains
+the save-and-choose fallback when it does not.
+
 ## Metadata APIs (called from the browser)
 
 | Endpoint | Purpose | Auth | CORS | Verified | Code | Where to look on breakage |

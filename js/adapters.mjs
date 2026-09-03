@@ -749,6 +749,19 @@ async function deezerSearch(kind, query) {
   return deezerCandidates(data, kind);
 }
 
+// OCR retrieval deliberately uses only Deezer: its keyless JSONP endpoint
+// tolerates the small query fan-out, while iTunes rate-limits bursts and is
+// more valuable after the user has confirmed a candidate. Confidence comes
+// from ranking every returned row against the complete OCR text in
+// vinyl-scan.mjs; catalog order alone never auto-selects an album.
+export async function findOcrAlbumCandidates(queries) {
+  const bounded = [...new Set((queries || []).map((query) => String(query || '').trim()).filter(Boolean))].slice(0, 4);
+  const results = await Promise.allSettled(bounded.map((query) => deezerSearch('album', query)));
+  return results.flatMap((result, queryRank) => result.status === 'fulfilled'
+    ? result.value.map((candidate) => ({ ...candidate, queryRank }))
+    : []);
+}
+
 // The lead artist of a featuring credit — the split points Apple and Deezer
 // both use to join contributors.
 export function primaryArtist(artist) {

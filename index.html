@@ -28,6 +28,44 @@
       </button>
     </div>
     <button id="open-search" class="opener" type="button">▸ or search by artist / title / album</button>
+    <button id="open-vinyl-scan" class="opener" type="button">▸ or scan a vinyl cover</button>
+
+    <section id="vinyl-scan" class="scan-panel" hidden aria-label="Scan a vinyl cover">
+      <div class="scan-head">
+        <div>
+          <h2>Scan a vinyl cover</h2>
+          <p>Take, choose, paste or link an image. Text recognition runs on this device.</p>
+        </div>
+        <button id="close-vinyl-scan" class="scan-close" type="button" aria-label="Close vinyl scanner">×</button>
+      </div>
+
+      <div class="scan-source-actions">
+        <label class="btn btn-go" for="scan-camera">Take photo</label>
+        <input id="scan-camera" class="visually-hidden" type="file" accept="image/*" capture="environment">
+        <label class="btn" for="scan-file">Choose image</label>
+        <input id="scan-file" class="visually-hidden" type="file" accept="image/*">
+        <button id="scan-paste" class="btn" type="button">Paste image</button>
+      </div>
+
+      <form id="scan-url-form" class="scan-url-row">
+        <label class="visually-hidden" for="scan-url">Cover image URL</label>
+        <input id="scan-url" type="url" inputmode="url" placeholder="https://example.com/cover.jpg">
+        <button class="btn" type="submit">Use URL</button>
+      </form>
+
+      <p class="scan-privacy">
+        Your image is not uploaded. On the first scan, the OCR engine and English model are downloaded.
+      </p>
+      <img id="scan-preview" class="scan-preview" alt="Selected vinyl cover" hidden>
+      <p id="scan-status" class="line" role="status" aria-live="polite" hidden></p>
+
+      <div id="scan-text-wrap" class="scan-text-wrap" hidden>
+        <label for="scan-text">Recognized text — correct it if needed</label>
+        <textarea id="scan-text" rows="4" spellcheck="false"></textarea>
+        <button id="scan-find" class="btn btn-go" type="button">Find albums</button>
+      </div>
+      <div id="scan-candidates" class="scan-candidates" aria-live="polite"></div>
+    </section>
     <p id="status" class="line" hidden></p>
     <p id="note" class="line" hidden></p>
     <p id="suggest" class="line" hidden></p>
@@ -92,9 +130,10 @@
         track or album metadata is fetched from keyless public endpoints (iTunes, Deezer,
         YouTube and Spotify oEmbed, MusicBrainz), and links for the other platforms are
         built from each service’s own URL scheme. Exact matches are marked; everything
-        else is an honest search link. No link at hand? Type “Artist - Title” — or
-        open the artist / title / album form — and hit search. No analytics, no
-        cookies, no tracking.
+        else is an honest search link. No link at hand? Type “Artist - Title”, open the
+        artist / title / album form, or scan a vinyl cover. Cover OCR runs locally and
+        only its text is searched; the image is never uploaded. No analytics, no cookies,
+        no tracking.
       </p>
     </section>
   </main>
@@ -128,7 +167,8 @@
       "./js/icons.mjs": "./js/icons.mjs?v=dev",
       "./js/embeds.mjs": "./js/embeds.mjs?v=dev",
       "./js/enrich.mjs": "./js/enrich.mjs?v=dev",
-      "./js/cache.mjs": "./js/cache.mjs?v=dev"
+      "./js/cache.mjs": "./js/cache.mjs?v=dev",
+      "./js/vinyl-scan.mjs": "./js/vinyl-scan.mjs?v=dev"
     }
   }
   </script>
