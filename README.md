@@ -113,6 +113,11 @@ functions):
 node --test 'tests/*.test.mjs'
 ```
 
+The visual vinyl fallback has a separate, reproducible
+[long-tail retrieval benchmark](benchmarks/vinyl/README.md). Its sampler keeps
+third-party cover art in an ignored local cache; only the harness and measured
+results belong in the repository.
+
 **Cache busting is automatic — nothing to bump by hand.** Every asset
 reference in `index.html` carries the marker `v=dev`, and the pages workflow
 rewrites it to the commit SHA as it deploys. GitHub Pages serves everything

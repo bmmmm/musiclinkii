@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>musiclinkii vinyl retrieval benchmark</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; background: #111; color: #eee; }
+    body { max-width: 68rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+    h1 { line-height: 1.1; }
+    button, a.download { display: inline-block; border: 0; border-radius: .5rem; padding: .7rem 1rem; background: #8ce99a; color: #102012; font: inherit; font-weight: 700; cursor: pointer; text-decoration: none; }
+    button:disabled { cursor: wait; opacity: .55; }
+    #status { min-height: 3rem; padding: 1rem; border-radius: .5rem; background: #1d1d1d; white-space: pre-wrap; }
+    table { width: 100%; margin-top: 1rem; border-collapse: collapse; }
+    th, td { padding: .65rem; border-bottom: 1px solid #333; text-align: left; }
+    .downloads { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+    .note { color: #bbb; }
+    code { color: #b2f2bb; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Vinyl cover retrieval benchmark</h1>
+    <p>This local harness embeds clean reference covers, creates deterministic phone-like variants, and retrieves them from a compact Int8 index.</p>
+    <p class="note">Images stay in this browser. The model is downloaded on first use and then held by the browser cache.</p>
+    <button id="start" type="button">Run benchmark</button>
+    <p id="status" role="status" aria-live="polite">Ready.</p>
+    <section id="results" hidden>
+      <h2>Results</h2>
+      <table>
+        <thead><tr><th>Variant</th><th>Recall@1</th><th>Recall@5</th><th>Median rank</th></tr></thead>
+        <tbody id="metrics"></tbody>
+      </table>
+      <dl id="details"></dl>
+      <div id="downloads" class="downloads"></div>
+    </section>
+  </main>
+  <script type="module" src="runner.mjs"></script>
+</body>
+</html>
