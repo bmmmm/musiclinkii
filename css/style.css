@@ -243,11 +243,29 @@ h1 {
   border-radius: 0.6rem;
 }
 
+.model-info,
+.model-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.model-info { flex-direction: column; }
+.model-info strong { color: var(--text); }
+.model-info a { color: var(--accent); }
+
+.model-actions {
+  flex: 0 0 auto;
+  align-items: stretch;
+  flex-direction: column;
+}
+
 .model-storage[data-stored="true"] {
   color: var(--text);
   border-color: var(--exact);
 }
 
+.model-download,
 .model-delete {
   flex: 0 0 auto;
   padding: 0.3rem 0.5rem;
@@ -259,6 +277,8 @@ h1 {
   cursor: pointer;
 }
 
+.model-download:hover,
+.model-download:focus-visible,
 .model-delete:hover,
 .model-delete:focus-visible { color: var(--text); border-color: var(--accent); }
 

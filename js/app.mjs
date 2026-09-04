@@ -22,7 +22,7 @@ import {
 } from './vinyl-scan.mjs';
 import {
   canRerankVisually, clearVisualModel, embedVinylCover, rerankVinylCandidates,
-  migrateLegacyVisualModel, visualModelStored,
+  migrateLegacyVisualModel, prepareVisualModel, visualModelStored,
 } from './visual-match.mjs';
 import { searchVinylCatalog } from './vinyl-index.mjs';
 
@@ -57,6 +57,7 @@ const el = {
   scanPreview: $('#scan-preview'),
   scanStatus: $('#scan-status'),
   visualModelState: $('#visual-model-state'),
+  downloadVisualModel: $('#download-visual-model'),
   deleteVisualModel: $('#delete-visual-model'),
   scanTextWrap: $('#scan-text-wrap'),
   scanText: $('#scan-text'),
@@ -875,7 +876,8 @@ function setScanStatus(text, tone = 'info') {
 function setScanBusy(busy) {
   scanBusy = busy;
   for (const node of [
-    el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind, el.deleteVisualModel,
+    el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind,
+    el.downloadVisualModel, el.deleteVisualModel,
     ...el.scanCandidates.querySelectorAll('button'),
   ]) {
     node.disabled = busy;
@@ -886,9 +888,10 @@ function setScanBusy(busy) {
 
 function renderVisualModelStorage(stored, text = '') {
   el.visualModelState.textContent = text || (stored
-    ? 'Visual matching model: stored on this device'
-    : 'Visual matching model: downloaded when first used');
-  el.visualModelState.parentElement.dataset.stored = String(stored);
+    ? 'Stored on this device'
+    : 'Not stored — downloaded only when you choose');
+  el.visualModelState.closest('.model-storage').dataset.stored = String(stored);
+  el.downloadVisualModel.hidden = stored;
   el.deleteVisualModel.hidden = !stored;
 }
 
@@ -897,7 +900,7 @@ async function refreshVisualModelStorage() {
     await migrateLegacyVisualModel();
     renderVisualModelStorage(await visualModelStored());
   } catch {
-    renderVisualModelStorage(false, 'Visual matching model: browser storage unavailable');
+    renderVisualModelStorage(false, 'Browser storage unavailable');
   }
 }
 
@@ -949,7 +952,7 @@ function scanProgress(message) {
 function visualProgress(message) {
   if (message.stage === 'model') {
     setScanStatus(`Loading visual model ${message.percent}%`);
-    renderVisualModelStorage(false, `Visual matching model: downloading ${message.percent}%`);
+    renderVisualModelStorage(false, `Downloading model ${message.percent}%`);
   } else if (message.stage === 'model-ready') {
     renderVisualModelStorage(true);
   } else if (message.stage === 'query') {
@@ -1148,10 +1151,25 @@ el.scanPaste.addEventListener('click', () => {
   el.scanPaste.focus();
   setScanStatus('Press ⌘V or Ctrl+V to paste an image.');
 });
+el.downloadVisualModel.addEventListener('click', async () => {
+  if (scanBusy) return;
+  setScanBusy(true);
+  renderVisualModelStorage(false, 'Preparing model download…');
+  try {
+    await prepareVisualModel({ onProgress: visualProgress });
+    renderVisualModelStorage(true);
+    setScanStatus('The visual model is ready and stays on this device.');
+  } catch {
+    await refreshVisualModelStorage();
+    setScanStatus('The visual model could not be downloaded.', 'warn');
+  } finally {
+    setScanBusy(false);
+  }
+});
 el.deleteVisualModel.addEventListener('click', async () => {
   if (scanBusy) return;
   el.deleteVisualModel.disabled = true;
-  renderVisualModelStorage(true, 'Visual matching model: deleting…');
+  renderVisualModelStorage(true, 'Deleting model…');
   try {
     await clearVisualModel();
     renderVisualModelStorage(false);

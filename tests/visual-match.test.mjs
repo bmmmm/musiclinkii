@@ -11,8 +11,21 @@ import {
   rankVisualCandidates,
   rerankVinylCandidates,
   visualModelStored,
+  VISUAL_MODEL,
   VISUAL_MODEL_CACHE,
 } from '../js/visual-match.mjs';
+
+test('visual model metadata describes the exact q4 files loaded by the pipeline', () => {
+  assert.deepEqual(VISUAL_MODEL, {
+    name: 'DINOv2 Small',
+    repository: 'Xenova/dinov2-small',
+    variant: 'q4 ONNX',
+    dimensions: 384,
+    bytes: 15035808,
+    url: 'https://huggingface.co/Xenova/dinov2-small',
+    fileUrl: 'https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_q4.onnx',
+  });
+});
 
 function memoryCacheStorage() {
   const stores = new Map();

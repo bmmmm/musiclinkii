@@ -5,6 +5,15 @@
 
 const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
 const MODEL = 'Xenova/dinov2-small';
+export const VISUAL_MODEL = Object.freeze({
+  name: 'DINOv2 Small',
+  repository: MODEL,
+  variant: 'q4 ONNX',
+  dimensions: 384,
+  bytes: 15035808,
+  url: 'https://huggingface.co/Xenova/dinov2-small',
+  fileUrl: 'https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_q4.onnx',
+});
 export const VISUAL_MODEL_CACHE = 'musiclinkii-visual-model-v1';
 const LEGACY_MODEL_CACHE = 'transformers-cache';
 const MODEL_URL_FRAGMENT = '/Xenova/dinov2-small/';
@@ -153,6 +162,10 @@ async function loadExtractor(onProgress) {
   const extractor = await extractorPromise;
   onProgress({ stage: 'model-ready' });
   return extractor;
+}
+
+export async function prepareVisualModel({ onProgress = () => {} } = {}) {
+  await loadExtractor(onProgress);
 }
 
 async function vectorFromBlob(blob, extractor) {

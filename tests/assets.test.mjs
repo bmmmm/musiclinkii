@@ -54,7 +54,11 @@ test('image paste waits for a user paste event instead of requesting clipboard a
   assert.match(html, /id="scan-paste"[\s\S]*press ⌘V or Ctrl\+V/i);
 });
 
-test('the scanner exposes visual-model storage state and deletion', () => {
+test('the scanner exposes exact visual-model details, download, storage state and deletion', () => {
+  assert.match(html, /DINOv2 Small/);
+  assert.match(html, /q4 ONNX · 384 dimensions · 15\.0 MB model files/);
+  assert.match(html, /href="https:\/\/huggingface\.co\/Xenova\/dinov2-small"/);
   assert.match(html, /id="visual-model-state"/);
+  assert.match(html, /id="download-visual-model"[\s\S]*Download model/);
   assert.match(html, /id="delete-visual-model"[\s\S]*Delete local model/);
 });
