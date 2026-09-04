@@ -18,7 +18,7 @@ import { cardModels, cardSignature } from './cards.mjs';
 import { iconSvg } from './icons.mjs';
 import {
   buildOcrQueries, fetchImage, pastedImage, rankOcrAlbumCandidates,
-  readClipboardImage, recognizeVinylText,
+  recognizeVinylText,
 } from './vinyl-scan.mjs';
 import { canRerankVisually, embedVinylCover, rerankVinylCandidates } from './visual-match.mjs';
 import { searchVinylCatalog } from './vinyl-index.mjs';
@@ -1074,15 +1074,6 @@ async function scanImage(blob) {
   }
 }
 
-async function scanClipboard() {
-  if (scanBusy) return;
-  try {
-    await scanImage(await readClipboardImage());
-  } catch (error) {
-    setScanStatus(error?.message || 'The clipboard image could not be read.', 'warn');
-  }
-}
-
 async function scanImageUrl(event) {
   event.preventDefault();
   if (scanBusy) return;
@@ -1128,7 +1119,10 @@ el.openVinylScan.addEventListener('click', () => {
   el.scanUrl.focus();
 });
 el.closeVinylScan.addEventListener('click', resetVinylScanner);
-el.scanPaste.addEventListener('click', scanClipboard);
+el.scanPaste.addEventListener('click', () => {
+  el.scanPaste.focus();
+  setScanStatus('Press ⌘V or Ctrl+V to paste an image.');
+});
 el.scanUrlForm.addEventListener('submit', scanImageUrl);
 el.scanFind.addEventListener('click', async () => {
   if (scanBusy) return;
@@ -1153,7 +1147,13 @@ for (const input of [el.scanCamera, el.scanFile]) {
 // paste opens the scanner, while ordinary pasted text keeps its old path.
 document.addEventListener('paste', (event) => {
   const image = pastedImage(event.clipboardData);
-  if (!image) return;
+  if (!image) {
+    if (document.activeElement === el.scanPaste) {
+      event.preventDefault();
+      setScanStatus('The pasted clipboard item is not an image.', 'warn');
+    }
+    return;
+  }
   event.preventDefault();
   showVinylScanner();
   scanImage(image);

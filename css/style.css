@@ -176,6 +176,31 @@ h1 {
   margin-top: 1rem;
 }
 
+.scan-paste {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.75rem;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 0.65rem;
+  cursor: pointer;
+}
+
+.scan-paste span {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.scan-paste:hover,
+.scan-paste:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
 .scan-url-row {
   display: flex;
   gap: 0.45rem;

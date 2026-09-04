@@ -10,6 +10,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 const root = new URL('../', import.meta.url);
 const html = readFileSync(new URL('index.html', root), 'utf8');
+const app = readFileSync(new URL('js/app.mjs', root), 'utf8');
+const vinylScan = readFileSync(new URL('js/vinyl-scan.mjs', root), 'utf8');
 
 // The entry point is loaded by <script src>, everything else through the
 // import map — derived from disk so a new module cannot slip through.
@@ -45,4 +47,9 @@ test('placeholder count matches what the deploy workflow expects', () => {
 test('no hand-bumped version survives — ?v=dev is the only form', () => {
   const stray = [...html.matchAll(/\?v=([^"']+)/g)].map((m) => m[1]).filter((v) => v !== 'dev');
   assert.deepEqual(stray, [], 'versions are stamped at deploy time, never by hand');
+});
+
+test('image paste waits for a user paste event instead of requesting clipboard access', () => {
+  assert.doesNotMatch(`${app}\n${vinylScan}`, /navigator\.clipboard\??\.read/);
+  assert.match(html, /id="scan-paste"[\s\S]*press ⌘V or Ctrl\+V/i);
 });

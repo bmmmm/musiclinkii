@@ -158,16 +158,6 @@ export function pastedImage(clipboardData) {
   return item?.getAsFile() || null;
 }
 
-export async function readClipboardImage() {
-  if (!navigator.clipboard?.read) throw new Error('Image paste is not available in this browser. Press ⌘V or Ctrl+V instead.');
-  const items = await navigator.clipboard.read();
-  for (const item of items) {
-    const type = item.types.find((candidate) => candidate.startsWith('image/'));
-    if (type) return assertImage(await item.getType(type));
-  }
-  throw new Error('The clipboard does not contain an image.');
-}
-
 export async function fetchImage(url) {
   let parsed;
   try {
