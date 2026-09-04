@@ -6,6 +6,8 @@
 const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
 const MODEL = 'Xenova/dinov2-small';
 export const VISUAL_MODEL_CACHE = 'musiclinkii-visual-model-v1';
+const LEGACY_MODEL_CACHE = 'transformers-cache';
+const MODEL_URL_FRAGMENT = '/Xenova/dinov2-small/';
 const MODEL_READY_URL = new URL('../.musiclinkii-visual-model-ready-v1', import.meta.url);
 MODEL_READY_URL.search = '';
 const DTYPE = 'q4';
@@ -31,6 +33,30 @@ export async function markVisualModelStored({ cacheStorage = globalThis.caches }
   return true;
 }
 
+const requestUrl = (request) => request?.url || String(request);
+
+async function legacyModelRequests(cacheStorage) {
+  if (!cacheStorage || !await cacheStorage.has(LEGACY_MODEL_CACHE)) return [];
+  const cache = await cacheStorage.open(LEGACY_MODEL_CACHE);
+  return (await cache.keys()).filter((request) => requestUrl(request).includes(MODEL_URL_FRAGMENT));
+}
+
+export async function migrateLegacyVisualModel({ cacheStorage = globalThis.caches } = {}) {
+  if (!cacheStorage || await visualModelStored({ cacheStorage })) return false;
+  const requests = await legacyModelRequests(cacheStorage);
+  if (!requests.some((request) => /\.onnx(?:$|\?)/.test(requestUrl(request)))) return false;
+
+  const legacy = await cacheStorage.open(LEGACY_MODEL_CACHE);
+  const target = await cacheStorage.open(VISUAL_MODEL_CACHE);
+  for (const request of requests) {
+    const response = await legacy.match(request);
+    if (response) await target.put(request, response.clone?.() || response);
+  }
+  await markVisualModelStored({ cacheStorage });
+  for (const request of requests) await legacy.delete(request);
+  return true;
+}
+
 export async function clearVisualModel({ cacheStorage = globalThis.caches } = {}) {
   const currentExtractor = extractorPromise;
   extractorPromise = null;
@@ -40,7 +66,15 @@ export async function clearVisualModel({ cacheStorage = globalThis.caches } = {}
       await extractor.dispose?.();
     } catch { /* a failed model load has nothing left to dispose */ }
   }
-  return cacheStorage ? cacheStorage.delete(VISUAL_MODEL_CACHE) : false;
+  if (!cacheStorage) return false;
+  let removed = await cacheStorage.delete(VISUAL_MODEL_CACHE);
+  if (await cacheStorage.has(LEGACY_MODEL_CACHE)) {
+    const legacy = await cacheStorage.open(LEGACY_MODEL_CACHE);
+    for (const request of await legacyModelRequests(cacheStorage)) {
+      removed = await legacy.delete(request) || removed;
+    }
+  }
+  return removed;
 }
 
 export function canRerankVisually(candidates) {

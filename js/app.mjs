@@ -22,7 +22,7 @@ import {
 } from './vinyl-scan.mjs';
 import {
   canRerankVisually, clearVisualModel, embedVinylCover, rerankVinylCandidates,
-  visualModelStored,
+  migrateLegacyVisualModel, visualModelStored,
 } from './visual-match.mjs';
 import { searchVinylCatalog } from './vinyl-index.mjs';
 
@@ -894,6 +894,7 @@ function renderVisualModelStorage(stored, text = '') {
 
 async function refreshVisualModelStorage() {
   try {
+    await migrateLegacyVisualModel();
     renderVisualModelStorage(await visualModelStored());
   } catch {
     renderVisualModelStorage(false, 'Visual matching model: browser storage unavailable');

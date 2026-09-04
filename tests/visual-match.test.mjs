@@ -7,6 +7,7 @@ import {
   cosineSimilarity,
   clearVisualModel,
   markVisualModelStored,
+  migrateLegacyVisualModel,
   rankVisualCandidates,
   rerankVinylCandidates,
   visualModelStored,
@@ -23,6 +24,8 @@ function memoryCacheStorage() {
       return {
         async match(key) { return store.get(String(key)); },
         async put(key, value) { store.set(String(key), value); },
+        async keys() { return [...store.keys()]; },
+        async delete(key) { return store.delete(String(key)); },
       };
     },
     async delete(name) { return stores.delete(name); },
@@ -44,6 +47,20 @@ test('the visual model owns a persistent cache with an explicit delete path', as
   assert.equal(await visualModelStored({ cacheStorage }), true);
   assert.equal(await clearVisualModel({ cacheStorage }), true);
   assert.equal(await visualModelStored({ cacheStorage }), false);
+});
+
+test('a previously downloaded DINO model migrates without touching foreign cache rows', async () => {
+  const cacheStorage = memoryCacheStorage();
+  const legacy = await cacheStorage.open('transformers-cache');
+  const modelUrl = 'https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_q4.onnx';
+  const foreignUrl = 'https://huggingface.co/another/model/config.json';
+  await legacy.put(modelUrl, new Response('model'));
+  await legacy.put(foreignUrl, new Response('foreign'));
+
+  assert.equal(await migrateLegacyVisualModel({ cacheStorage }), true);
+  assert.equal(await visualModelStored({ cacheStorage }), true);
+  assert.equal(await legacy.match(modelUrl), undefined);
+  assert.ok(await legacy.match(foreignUrl));
 });
 
 test('cosine similarity handles magnitude and rejects incompatible vectors', () => {
