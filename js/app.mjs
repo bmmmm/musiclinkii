@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// UI orchestration around ONE commit path: pasted link, free text and the
-// artist/title form all land in commitSearch(), which owns the generation,
+// UI orchestration around ONE commit path: pasted links and structured
+// artist/song or artist/album searches land in commitSearch(), which owns the generation,
 // the result reset, the surface sync, the share hash and the lookup
 // pipeline. Typing never triggers lookups; "Next search" is the only reset.
 
-import { parseInput, looksLikeLink } from './parsers.mjs';
+import { parseInput } from './parsers.mjs';
 import {
   PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor,
   linkFromHash, vinylScanRequested, vinylScanSearch,
 } from './links.mjs';
 import {
-  fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist, parseFreeText,
+  fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist,
   namesakeChipLabel, setMbRetryListener, findOcrAlbumCandidates,
 } from './adapters.mjs';
 import { enrichByCode, mergeExactLinks } from './enrich.mjs';
@@ -46,8 +46,8 @@ const el = {
   share: $('#share'),
   nextLink: $('#next-link'),
   go: $('#go'),
-  openSearch: $('#open-search'),
-  openVinylScan: $('#open-vinyl-scan'),
+  searchModeToggle: $('#search-mode-toggle'),
+  urlSearch: $('#url-search'),
   vinylScan: $('#vinyl-scan'),
   closeVinylScan: $('#close-vinyl-scan'),
   scanCamera: $('#scan-camera'),
@@ -70,6 +70,7 @@ const el = {
   formSearch: $('#form-search'),
   kindToggle: $('#kind-toggle'),
   titleLabel: $('#title-label'),
+  searchFormat: $('#search-format'),
 };
 
 const region = regionFromLocale(navigator.language);
@@ -89,7 +90,8 @@ const state = {
   upcFrom: '',      // Deezer album id whose UPC fetch already started
   artistChips: null, // { title, names, itunesDown } — chips survive rounds
   namesakeChips: null, // { artist, candidates, mode } — same-named artist choices
-  kind: 'track',    // form/free-text kind, picked via the Track/Album/Artist toggle
+  kind: 'track',    // structured search kind, picked via the song/album toggle
+  inputMode: 'url', // URL, structured text search, or the local vinyl scanner
   pending: new Set(), // platform keys whose exact-link stage has not settled
   generation: 0,    // invalidates in-flight fetches when input changes
 };
@@ -105,15 +107,43 @@ function syncKindUi() {
   const artistOnly = kind === 'artist';
   el.titleLabel.hidden = artistOnly;
   el.title.hidden = artistOnly;
-  const label = kind === 'album' ? 'Album' : 'Title';
+  const label = kind === 'album' ? 'Album' : 'Song';
   el.titleLabel.textContent = label;
   el.title.placeholder = label;
+  el.searchFormat.textContent = artistOnly ? 'Format: Artist' : `Format: Artist — ${label}`;
 }
 
 function syncKindToggle() {
   for (const b of el.kindToggle.querySelectorAll('.kind-btn')) {
     b.setAttribute('aria-pressed', String(b.dataset.kind === state.kind));
   }
+}
+
+function syncInputModeUi() {
+  for (const button of el.searchModeToggle.querySelectorAll('.search-mode-btn')) {
+    button.setAttribute('aria-pressed', String(button.dataset.mode === state.inputMode));
+  }
+  el.urlSearch.hidden = state.inputMode !== 'url';
+  // A parsed URL keeps its editable metadata visible, even though URL remains
+  // the active input mode.
+  el.track.hidden = state.inputMode !== 'search' && !state.parsed;
+  el.vinylScan.hidden = state.inputMode !== 'vinyl';
+}
+
+function setInputMode(mode, { focus = true, updateUrl = true } = {}) {
+  const leavingVinyl = state.inputMode === 'vinyl' && mode !== 'vinyl';
+  state.inputMode = mode;
+  if (leavingVinyl) {
+    // A hidden scanner must not finish later and replace the newer search.
+    scanGeneration += 1;
+    setScanBusy(false);
+  }
+  syncInputModeUi();
+  if (updateUrl) writeVinylScanUrl(mode === 'vinyl');
+  if (!focus) return;
+  if (mode === 'url') el.input.focus();
+  else if (mode === 'search') el.artist.focus();
+  else el.scanUrl.focus();
 }
 
 // --- Status lines: one owner each, no cross-guards. #status carries the
@@ -465,10 +495,7 @@ el.share.addEventListener('click', async () => {
 function inputQuery() {
   const raw = el.input.value.trim();
   if (!raw) return null;
-  if (looksLikeLink(raw)) return { link: raw, parsed: parseInput(raw), origin: 'input' };
-  const parts = parseFreeText(raw, state.kind);
-  if (!parts) return null;
-  return { kind: state.kind, artist: parts.artist, title: parts.title, origin: 'input' };
+  return { link: raw, parsed: parseInput(raw), origin: 'input' };
 }
 
 function fieldsQuery() {
@@ -535,9 +562,8 @@ function hideTrack() {
   el.topsongs.textContent = '';
   el.thumb.hidden = true;
   el.thumb.removeAttribute('src');
-  el.track.hidden = true;
+  el.track.hidden = state.inputMode !== 'search';
   el.kindToggle.hidden = false;
-  el.openSearch.hidden = false;
 }
 
 // Keep both input surfaces telling the same story. A fields commit inside
@@ -549,18 +575,19 @@ function syncSurfaces(q) {
     el.artist.value = '';
     el.title.value = '';
     el.kindToggle.hidden = true; // the parsed link dictates the kind
+    setInputMode('url', { focus: false, updateUrl: false });
   } else {
     el.artist.value = q.artist;
     el.title.value = q.title;
     if (!state.parsed) el.input.value = queryText(q);
     el.kindToggle.hidden = Boolean(state.parsed);
+    setInputMode('search', { focus: false, updateUrl: false });
   }
   if (q.link || !state.parsed) {
     el.thumb.hidden = true;
     el.thumb.removeAttribute('src');
   }
   el.track.hidden = false;
-  el.openSearch.hidden = true;
 }
 
 // The permalink always mirrors the committed query; only a link that
@@ -677,9 +704,8 @@ function commitFromPick(candidate) {
   commitSearch({ kind: 'artist', artist: candidate.name, title: '', origin: 'fields', pick: candidate });
 }
 
-// "Next search": one click back to a clean slate — the only reset. The
-// kind toggle is part of the slate: a sticky Artist press would silently
-// re-interpret the next typed "Artist - Title" as an artist query.
+// "Next search": one click back to a clean slate. The structured search
+// returns to Song so the next query cannot inherit an Album choice.
 function resetAll() {
   state.generation += 1; // invalidate anything in flight
   running = null;
@@ -931,9 +957,7 @@ function writeVinylScanUrl(open) {
 }
 
 function showVinylScanner({ updateUrl = true } = {}) {
-  el.vinylScan.hidden = false;
-  el.openVinylScan.hidden = true;
-  if (updateUrl) writeVinylScanUrl(true);
+  setInputMode('vinyl', { focus: false, updateUrl });
 }
 
 function resetVinylScanner({ updateUrl = true } = {}) {
@@ -951,8 +975,8 @@ function resetVinylScanner({ updateUrl = true } = {}) {
   el.scanCamera.value = '';
   el.scanFile.value = '';
   setScanStatus('');
-  el.vinylScan.hidden = true;
-  el.openVinylScan.hidden = false;
+  if (state.inputMode === 'vinyl') setInputMode('url', { focus: false, updateUrl: false });
+  else el.vinylScan.hidden = true;
   if (updateUrl) writeVinylScanUrl(false);
 }
 
@@ -1150,14 +1174,9 @@ async function scanImageUrl(event) {
 
 el.nextLink.addEventListener('click', () => {
   resetAll();
-  el.input.focus();
+  setInputMode('url');
 });
 
-// The opener hides while text is present because the form is an
-// alternative to typing, not a companion.
-el.input.addEventListener('input', () => {
-  if (el.track.hidden) el.openSearch.hidden = Boolean(el.input.value.trim());
-});
 // Paste is a complete entry — resolve it instantly, no extra click.
 el.input.addEventListener('paste', (event) => {
   if (!event.defaultPrevented) setTimeout(commitFromInput, 0);
@@ -1165,16 +1184,9 @@ el.input.addEventListener('paste', (event) => {
 el.input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commitFromInput(); });
 el.go.addEventListener('click', commitFromInput);
 
-el.openSearch.addEventListener('click', () => {
-  el.openSearch.hidden = true;
-  el.track.hidden = false;
-  el.artist.focus();
-});
-
-el.openVinylScan.addEventListener('click', () => {
-  showVinylScanner();
-  el.scanUrl.focus();
-});
+for (const button of el.searchModeToggle.querySelectorAll('.search-mode-btn')) {
+  button.addEventListener('click', () => setInputMode(button.dataset.mode));
+}
 el.closeVinylScan.addEventListener('click', resetVinylScanner);
 el.scanPaste.addEventListener('click', () => {
   el.scanPaste.focus();
@@ -1280,9 +1292,8 @@ if (shared) {
 
 if (vinylScanRequested(location.search)) {
   showVinylScanner({ updateUrl: false });
-  el.scanUrl.focus();
 } else {
-  el.input.focus();
+  setInputMode('url');
 }
 
 refreshVisualModelStorage();

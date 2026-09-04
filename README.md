@@ -3,8 +3,8 @@
 One music link in — every platform out.
 
 Paste a track or album link from Spotify, Apple Music, YouTube / YouTube
-Music, Deezer, TIDAL, Amazon Music, SoundCloud or Bandcamp — or just type
-“Artist - Title” or scan a vinyl cover — and get links to the same track or
+Music, Deezer, TIDAL, Amazon Music, SoundCloud or Bandcamp — search by artist
+and song or album, or scan a vinyl cover — and get links to the same track or
 album on every other streaming platform. Fully static, no server, no tracking.
 
 **Live: <https://bmmmm.github.io/musiclinkii/>**
@@ -65,13 +65,12 @@ use it.
 | Bandcamp | ✓ | guessed from URL | — | ✓ | — | — |
 | Qobuz | ✓ | guessed from URL | best effort (albums: UPC → MusicBrainz) | ✓ | — | — |
 
-**No link at hand?** Typing “Artist - Title” (or just a title) into the
-input runs the same pipeline from text: search links for every platform,
-plus catalog matches where Deezer/iTunes agree. Ambiguous titles get
-one-click artist chips instead of a silent guess. The form below the
-input switches between **Track / Album / Artist** searches — artist
-searches match via the Deezer/iTunes artist catalogs and MusicBrainz
-artist URL relations. The vinyl scanner is an OCR-first alternative input:
+**No link at hand?** Choose **Search**, then enter **Artist + song** in the
+visible `Artist — Song` format or choose **Album** for `Artist — Album`.
+Both run the same pipeline from text: search links for every platform, plus
+catalog matches where Deezer/iTunes agree. Ambiguous titles get one-click
+artist chips instead of a silent guess. The vinyl scanner is an OCR-first
+alternative input:
 it always shows album candidates for confirmation and never silently picks
 one. When OCR finds two to five plausible albums with cover art, the person
 scanning can explicitly run local visual comparison to improve their order.

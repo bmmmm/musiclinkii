@@ -70,6 +70,41 @@ h1 {
 
 .tagline { margin: 0.4rem 0 0; color: var(--muted); }
 
+.search-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 0.8rem;
+  padding: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow);
+}
+
+.search-mode-btn {
+  min-width: 0;
+  padding: 0.55rem 0.2rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  white-space: nowrap;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 0.62rem;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.search-mode-btn:hover { color: var(--text); }
+
+.search-mode-btn[aria-pressed='true'] {
+  color: #fff;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.search-source { margin: 0; }
+
 #link-input {
   width: 100%;
   padding: 1rem 3.1rem 1rem 1.2rem;
@@ -112,18 +147,11 @@ h1 {
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
 
-.opener {
-  margin: 0.55rem 0.2rem 0;
-  padding: 0;
-  font-size: 0.88rem;
-  font-family: inherit;
+.search-format {
+  margin: 0.45rem 0 0;
+  font-size: 0.82rem;
   color: var(--muted);
-  background: none;
-  border: none;
-  cursor: pointer;
 }
-
-.opener:hover { color: var(--accent); }
 
 .scan-panel {
   margin-top: 1rem;
@@ -499,6 +527,11 @@ h1 {
   color: var(--muted);
 }
 
+.track-fields .search-format {
+  grid-column: 2;
+  margin-top: -0.1rem;
+}
+
 #results { margin-top: 1.6rem; }
 
 .results-head {
@@ -533,6 +566,7 @@ h1 {
   font-size: 0.82rem;
   font-weight: 600;
   font-family: inherit;
+  white-space: nowrap;
   color: var(--muted);
   background: var(--bg);
   border: 1px solid var(--border);

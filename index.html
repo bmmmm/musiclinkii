@@ -16,19 +16,26 @@
   </header>
 
   <main>
-    <label class="visually-hidden" for="link-input">Music link or search text</label>
-    <div class="input-wrap">
-      <input id="link-input" type="text" inputmode="url" autocomplete="off" spellcheck="false" autofocus
-             placeholder="Paste a music link — or type “Artist - Title”">
-      <button id="go" class="input-btn" type="button" title="Search now" aria-label="Search now">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-             stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-          <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path>
-        </svg>
-      </button>
+    <div id="search-mode-toggle" class="search-mode-toggle" role="group" aria-label="Choose how to add music">
+      <button type="button" class="search-mode-btn" data-mode="url" aria-pressed="true">URL</button>
+      <button type="button" class="search-mode-btn" data-mode="search" aria-pressed="false">Search</button>
+      <button type="button" class="search-mode-btn" data-mode="vinyl" aria-pressed="false">Scan vinyl</button>
     </div>
-    <button id="open-search" class="opener" type="button">▸ or search by artist / title / album</button>
-    <button id="open-vinyl-scan" class="opener" type="button">▸ or scan a vinyl cover</button>
+
+    <section id="url-search" class="search-source" aria-label="Search by music URL">
+      <label class="visually-hidden" for="link-input">Music URL</label>
+      <div class="input-wrap">
+        <input id="link-input" type="url" inputmode="url" autocomplete="off" spellcheck="false" autofocus
+               placeholder="Paste a music URL">
+        <button id="go" class="input-btn" type="button" title="Search now" aria-label="Search now">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+               stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path>
+          </svg>
+        </button>
+      </div>
+      <p class="search-format">Paste a direct link from a music service.</p>
+    </section>
 
     <section id="vinyl-scan" class="scan-panel" hidden aria-label="Scan a vinyl cover">
       <div class="scan-head">
@@ -97,14 +104,14 @@
         <label for="artist-input">Artist</label>
         <input id="artist-input" type="text" autocomplete="off" placeholder="Artist">
         <p id="topsongs" hidden></p>
-        <label for="title-input" id="title-label">Title</label>
-        <input id="title-input" type="text" autocomplete="off" placeholder="Title">
+        <label for="title-input" id="title-label">Song</label>
+        <input id="title-input" type="text" autocomplete="off" placeholder="Song">
+        <p id="search-format" class="search-format">Format: Artist — Song</p>
       </div>
       <div class="track-actions">
         <div id="kind-toggle" role="group" aria-label="Search for">
-          <button type="button" class="kind-btn" data-kind="track" aria-pressed="true">Track</button>
+          <button type="button" class="kind-btn" data-kind="track" aria-pressed="true">Artist + song</button>
           <button type="button" class="kind-btn" data-kind="album" aria-pressed="false">Album</button>
-          <button type="button" class="kind-btn" data-kind="artist" aria-pressed="false">Artist</button>
         </div>
         <button id="form-search" class="btn btn-go" type="button">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
@@ -151,8 +158,8 @@
         track or album metadata is fetched from keyless public endpoints (iTunes, Deezer,
         YouTube and Spotify oEmbed, MusicBrainz), and links for the other platforms are
         built from each service’s own URL scheme. Exact matches are marked; everything
-        else is an honest search link. No link at hand? Type “Artist - Title”, open the
-        artist / title / album form, or scan a vinyl cover. Cover OCR and the optional
+        else is an honest search link. No link at hand? Use Search to enter an artist
+        and song or an artist and album, or scan a vinyl cover. Cover OCR and the optional
         artwork comparison run locally; only recognized text is sent in catalog searches.
         The selected image and its visual vector are never uploaded. No analytics, no
         cookies, no tracking.

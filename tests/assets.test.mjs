@@ -54,6 +54,15 @@ test('image paste waits for a user paste event instead of requesting clipboard a
   assert.match(html, /id="scan-paste"[\s\S]*press ⌘V or Ctrl\+V/i);
 });
 
+test('the homepage offers three primary input modes with explicit text-search formats', () => {
+  assert.match(html, /id="search-mode-toggle"[\s\S]*data-mode="url"[\s\S]*data-mode="search"[\s\S]*data-mode="vinyl"/);
+  assert.match(html, /id="url-search"[\s\S]*placeholder="Paste a music URL"/);
+  assert.match(html, /Artist \+ song[\s\S]*data-kind="album"[\s\S]*>Album</);
+  assert.match(html, /id="search-format"[^>]*>Format: Artist — Song/);
+  assert.doesNotMatch(html, /id="open-search"|id="open-vinyl-scan"/);
+  assert.match(app, /function setInputMode\(mode/);
+});
+
 test('the scanner offers every DINOv2 size with download, storage state and deletion', () => {
   assert.match(html, /Small — 15\.0 MB · fastest/);
   assert.match(html, /Base — 56\.4 MB · recommended/);
