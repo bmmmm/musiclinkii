@@ -53,3 +53,8 @@ test('image paste waits for a user paste event instead of requesting clipboard a
   assert.doesNotMatch(`${app}\n${vinylScan}`, /navigator\.clipboard\??\.read/);
   assert.match(html, /id="scan-paste"[\s\S]*press ⌘V or Ctrl\+V/i);
 });
+
+test('the scanner exposes visual-model storage state and deletion', () => {
+  assert.match(html, /id="visual-model-state"/);
+  assert.match(html, /id="delete-visual-model"[\s\S]*Delete local model/);
+});

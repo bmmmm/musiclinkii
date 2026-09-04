@@ -5,6 +5,9 @@
 
 const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
 const MODEL = 'Xenova/dinov2-small';
+export const VISUAL_MODEL_CACHE = 'musiclinkii-visual-model-v1';
+const MODEL_READY_URL = new URL('../.musiclinkii-visual-model-ready-v1', import.meta.url);
+MODEL_READY_URL.search = '';
 const DTYPE = 'q4';
 const MAX_CANDIDATES = 5;
 const MAX_REFERENCE_BYTES = 5 * 1024 * 1024;
@@ -12,6 +15,33 @@ const OCR_WEIGHT = 0.3;
 const VISUAL_WEIGHT = 0.7;
 
 let extractorPromise;
+
+export async function visualModelStored({ cacheStorage = globalThis.caches } = {}) {
+  if (!cacheStorage || !await cacheStorage.has(VISUAL_MODEL_CACHE)) return false;
+  const cache = await cacheStorage.open(VISUAL_MODEL_CACHE);
+  return Boolean(await cache.match(MODEL_READY_URL.href));
+}
+
+export async function markVisualModelStored({ cacheStorage = globalThis.caches } = {}) {
+  if (!cacheStorage) return false;
+  const cache = await cacheStorage.open(VISUAL_MODEL_CACHE);
+  await cache.put(MODEL_READY_URL.href, new Response('ready', {
+    headers: { 'Content-Type': 'text/plain' },
+  }));
+  return true;
+}
+
+export async function clearVisualModel({ cacheStorage = globalThis.caches } = {}) {
+  const currentExtractor = extractorPromise;
+  extractorPromise = null;
+  if (currentExtractor) {
+    try {
+      const extractor = await currentExtractor;
+      await extractor.dispose?.();
+    } catch { /* a failed model load has nothing left to dispose */ }
+  }
+  return cacheStorage ? cacheStorage.delete(VISUAL_MODEL_CACHE) : false;
+}
 
 export function canRerankVisually(candidates) {
   return Array.isArray(candidates) && candidates.length >= 2 &&
@@ -66,7 +96,8 @@ async function loadExtractor(onProgress) {
     extractorPromise = import(TRANSFORMERS_URL).then(async ({ env, pipeline }) => {
       env.allowLocalModels = false;
       env.useBrowserCache = true;
-      return pipeline('image-feature-extraction', MODEL, {
+      env.cacheKey = VISUAL_MODEL_CACHE;
+      const extractor = await pipeline('image-feature-extraction', MODEL, {
         dtype: DTYPE,
         progress_callback: (progress) => {
           if (progress.status === 'progress' && progress.file) {
@@ -78,12 +109,16 @@ async function loadExtractor(onProgress) {
           }
         },
       });
+      await markVisualModelStored().catch(() => false);
+      return extractor;
     }).catch((error) => {
       extractorPromise = null;
       throw error;
     });
   }
-  return extractorPromise;
+  const extractor = await extractorPromise;
+  onProgress({ stage: 'model-ready' });
+  return extractor;
 }
 
 async function vectorFromBlob(blob, extractor) {

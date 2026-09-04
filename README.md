@@ -29,7 +29,9 @@ Everything runs in your browser — there is no backend:
    selected image locally and reorders the catalog covers by visual similarity.
    If OCR finds nothing, the same explicit action can search a downloaded static
    vinyl-cover index entirely in the browser. Neither the image nor its vector is
-   sent anywhere, and no album is selected without confirmation.
+   sent anywhere, and no album is selected without confirmation. The visual model
+   remains in Musiclinkii's browser cache across visits until the person using the
+   scanner chooses **Delete local model** or clears the site's browser data.
 3. **Resolve** — title and artist are fetched from keyless public endpoints
    that allow cross-origin requests (verified empirically):
    [iTunes Lookup/Search](https://performance-partners.apple.com/search-api),

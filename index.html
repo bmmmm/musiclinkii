@@ -60,6 +60,10 @@
         Your image is not uploaded. OCR and optional visual comparison run on this device;
         their models and cover-index assets are downloaded only when you ask to use them.
       </p>
+      <div class="model-storage" aria-live="polite">
+        <span id="visual-model-state">Visual matching model: checking this device…</span>
+        <button id="delete-visual-model" class="model-delete" type="button" hidden>Delete local model</button>
+      </div>
       <img id="scan-preview" class="scan-preview" alt="Selected vinyl cover" hidden>
       <p id="scan-status" class="line" role="status" aria-live="polite" hidden></p>
 

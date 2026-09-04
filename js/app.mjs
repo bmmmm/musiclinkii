@@ -20,7 +20,10 @@ import {
   buildOcrQueries, fetchImage, pastedImage, rankOcrAlbumCandidates,
   recognizeVinylText,
 } from './vinyl-scan.mjs';
-import { canRerankVisually, embedVinylCover, rerankVinylCandidates } from './visual-match.mjs';
+import {
+  canRerankVisually, clearVisualModel, embedVinylCover, rerankVinylCandidates,
+  visualModelStored,
+} from './visual-match.mjs';
 import { searchVinylCatalog } from './vinyl-index.mjs';
 
 const $ = (sel) => document.querySelector(sel);
@@ -53,6 +56,8 @@ const el = {
   scanUrl: $('#scan-url'),
   scanPreview: $('#scan-preview'),
   scanStatus: $('#scan-status'),
+  visualModelState: $('#visual-model-state'),
+  deleteVisualModel: $('#delete-visual-model'),
   scanTextWrap: $('#scan-text-wrap'),
   scanText: $('#scan-text'),
   scanFind: $('#scan-find'),
@@ -870,13 +875,29 @@ function setScanStatus(text, tone = 'info') {
 function setScanBusy(busy) {
   scanBusy = busy;
   for (const node of [
-    el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind,
+    el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind, el.deleteVisualModel,
     ...el.scanCandidates.querySelectorAll('button'),
   ]) {
     node.disabled = busy;
   }
   const submit = el.scanUrlForm.querySelector('button[type="submit"]');
   submit.disabled = busy;
+}
+
+function renderVisualModelStorage(stored, text = '') {
+  el.visualModelState.textContent = text || (stored
+    ? 'Visual matching model: stored on this device'
+    : 'Visual matching model: downloaded when first used');
+  el.visualModelState.parentElement.dataset.stored = String(stored);
+  el.deleteVisualModel.hidden = !stored;
+}
+
+async function refreshVisualModelStorage() {
+  try {
+    renderVisualModelStorage(await visualModelStored());
+  } catch {
+    renderVisualModelStorage(false, 'Visual matching model: browser storage unavailable');
+  }
 }
 
 function writeVinylScanUrl(open) {
@@ -927,6 +948,9 @@ function scanProgress(message) {
 function visualProgress(message) {
   if (message.stage === 'model') {
     setScanStatus(`Loading visual model ${message.percent}%`);
+    renderVisualModelStorage(false, `Visual matching model: downloading ${message.percent}%`);
+  } else if (message.stage === 'model-ready') {
+    renderVisualModelStorage(true);
   } else if (message.stage === 'query') {
     setScanStatus('Analyzing selected cover locally');
   } else if (message.stage === 'reference') {
@@ -1123,6 +1147,21 @@ el.scanPaste.addEventListener('click', () => {
   el.scanPaste.focus();
   setScanStatus('Press ⌘V or Ctrl+V to paste an image.');
 });
+el.deleteVisualModel.addEventListener('click', async () => {
+  if (scanBusy) return;
+  el.deleteVisualModel.disabled = true;
+  renderVisualModelStorage(true, 'Visual matching model: deleting…');
+  try {
+    await clearVisualModel();
+    renderVisualModelStorage(false);
+    setScanStatus('The local visual model was deleted. It will download again when needed.');
+  } catch {
+    await refreshVisualModelStorage();
+    setScanStatus('The local visual model could not be deleted.', 'warn');
+  } finally {
+    el.deleteVisualModel.disabled = false;
+  }
+});
 el.scanUrlForm.addEventListener('submit', scanImageUrl);
 el.scanFind.addEventListener('click', async () => {
   if (scanBusy) return;
@@ -1190,3 +1229,5 @@ if (vinylScanRequested(location.search)) {
 } else {
   el.input.focus();
 }
+
+refreshVisualModelStorage();

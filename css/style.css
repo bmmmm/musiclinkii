@@ -229,6 +229,39 @@ h1 {
   color: var(--muted);
 }
 
+.model-storage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--badge-match-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+}
+
+.model-storage[data-stored="true"] {
+  color: var(--text);
+  border-color: var(--exact);
+}
+
+.model-delete {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  cursor: pointer;
+}
+
+.model-delete:hover,
+.model-delete:focus-visible { color: var(--text); border-color: var(--accent); }
+
 .scan-preview {
   display: block;
   width: min(12rem, 100%);

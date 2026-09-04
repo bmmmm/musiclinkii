@@ -5,15 +5,45 @@ import assert from 'node:assert/strict';
 import {
   canRerankVisually,
   cosineSimilarity,
+  clearVisualModel,
+  markVisualModelStored,
   rankVisualCandidates,
   rerankVinylCandidates,
+  visualModelStored,
+  VISUAL_MODEL_CACHE,
 } from '../js/visual-match.mjs';
+
+function memoryCacheStorage() {
+  const stores = new Map();
+  return {
+    async has(name) { return stores.has(name); },
+    async open(name) {
+      if (!stores.has(name)) stores.set(name, new Map());
+      const store = stores.get(name);
+      return {
+        async match(key) { return store.get(String(key)); },
+        async put(key, value) { store.set(String(key), value); },
+      };
+    },
+    async delete(name) { return stores.delete(name); },
+  };
+}
 
 test('visual comparison is offered only for a bounded set with artwork', () => {
   assert.equal(canRerankVisually([{ thumb: 'one' }]), false);
   assert.equal(canRerankVisually([{ thumb: 'one' }, { thumb: '' }]), false);
   assert.equal(canRerankVisually([{ thumb: 'one' }, { thumb: 'two' }]), true);
   assert.equal(canRerankVisually(Array.from({ length: 6 }, () => ({ thumb: 'cover' }))), false);
+});
+
+test('the visual model owns a persistent cache with an explicit delete path', async () => {
+  const cacheStorage = memoryCacheStorage();
+  assert.match(VISUAL_MODEL_CACHE, /^musiclinkii-/);
+  assert.equal(await visualModelStored({ cacheStorage }), false);
+  await markVisualModelStored({ cacheStorage });
+  assert.equal(await visualModelStored({ cacheStorage }), true);
+  assert.equal(await clearVisualModel({ cacheStorage }), true);
+  assert.equal(await visualModelStored({ cacheStorage }), false);
 });
 
 test('cosine similarity handles magnitude and rejects incompatible vectors', () => {
