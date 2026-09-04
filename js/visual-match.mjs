@@ -95,6 +95,18 @@ async function vectorFromBlob(blob, extractor) {
   }
 }
 
+export async function embedVinylCover(imageBlob, {
+  extractor,
+  onProgress = () => {},
+} = {}) {
+  if (!(imageBlob instanceof Blob) || !imageBlob.type.startsWith('image/')) {
+    throw new Error('A selected image is required for visual comparison');
+  }
+  const visualExtractor = extractor || await loadExtractor(onProgress);
+  onProgress({ stage: 'query' });
+  return vectorFromBlob(imageBlob, visualExtractor);
+}
+
 async function referenceBlob(url, fetcher) {
   const response = await fetcher(url, {
     method: 'GET',
@@ -113,15 +125,11 @@ export async function rerankVinylCandidates(imageBlob, candidates, {
   fetcher = globalThis.fetch,
   onProgress = () => {},
 } = {}) {
-  if (!(imageBlob instanceof Blob) || !imageBlob.type.startsWith('image/')) {
-    throw new Error('A selected image is required for visual comparison');
-  }
   if (!canRerankVisually(candidates)) throw new Error('Visual comparison requires two to five candidates with artwork');
   if (typeof fetcher !== 'function') throw new Error('A fetch implementation is required');
 
   const visualExtractor = extractor || await loadExtractor(onProgress);
-  onProgress({ stage: 'query', current: 0, total: candidates.length });
-  const queryVector = await vectorFromBlob(imageBlob, visualExtractor);
+  const queryVector = await embedVinylCover(imageBlob, { extractor: visualExtractor, onProgress });
   const candidateVectors = [];
   for (let index = 0; index < candidates.length; index += 1) {
     onProgress({ stage: 'reference', current: index + 1, total: candidates.length });

@@ -55,7 +55,7 @@
 
       <p class="scan-privacy">
         Your image is not uploaded. OCR and optional visual comparison run on this device;
-        their models are downloaded only when you ask to use them.
+        their models and cover-index assets are downloaded only when you ask to use them.
       </p>
       <img id="scan-preview" class="scan-preview" alt="Selected vinyl cover" hidden>
       <p id="scan-status" class="line" role="status" aria-live="polite" hidden></p>
@@ -133,8 +133,9 @@
         built from each service’s own URL scheme. Exact matches are marked; everything
         else is an honest search link. No link at hand? Type “Artist - Title”, open the
         artist / title / album form, or scan a vinyl cover. Cover OCR and the optional
-        artwork comparison run locally; only recognized text is sent in catalog searches,
-        and the selected image is never uploaded. No analytics, no cookies, no tracking.
+        artwork comparison run locally; only recognized text is sent in catalog searches.
+        The selected image and its visual vector are never uploaded. No analytics, no
+        cookies, no tracking.
       </p>
     </section>
   </main>
@@ -170,7 +171,9 @@
       "./js/enrich.mjs": "./js/enrich.mjs?v=dev",
       "./js/cache.mjs": "./js/cache.mjs?v=dev",
       "./js/vinyl-scan.mjs": "./js/vinyl-scan.mjs?v=dev",
-      "./js/visual-match.mjs": "./js/visual-match.mjs?v=dev"
+      "./js/visual-match.mjs": "./js/visual-match.mjs?v=dev",
+      "./js/vector-index.mjs": "./js/vector-index.mjs?v=dev",
+      "./js/vinyl-index.mjs": "./js/vinyl-index.mjs?v=dev"
     }
   }
   </script>

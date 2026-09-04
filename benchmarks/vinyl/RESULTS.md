@@ -66,5 +66,13 @@ Deezer thumbnails without CORS or console errors, and neither selected the
 album until its candidate button was clicked.
 
 This verifies the application wiring and a real correction, not phone-camera
-accuracy: both query images were clean 500 px catalog covers. Zero-text covers
-still need the separately shippable global vector index tested above.
+accuracy: both query images were clean 500 px catalog covers.
+
+The second product slice ships the same 12-reference long-tail set as a 4,620
+byte static shard plus 5,033 bytes of metadata. With OCR deliberately left at
+its unusable output, the selected Lauriete `Adoração` cover ranked first in the
+local application; the scanner remained open for confirmation. The browser sent
+neither image bytes nor the query vector to the catalog search. This proves the
+zero-text transfer and product wiring only. The pilot is far too small to claim
+catalog coverage, and the query was the clean reference image rather than a
+held-out phone photo.

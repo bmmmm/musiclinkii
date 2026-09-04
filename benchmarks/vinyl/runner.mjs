@@ -133,6 +133,12 @@ function addDownload(label, filename, body, type) {
   downloads.append(link);
 }
 
+function bytesToBase64(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 function renderReport(report, indexBytes, metadata) {
   metricsBody.replaceChildren();
   details.replaceChildren();
@@ -160,6 +166,9 @@ function renderReport(report, indexBytes, metadata) {
   addDownload('Download index.bin', 'index.bin', indexBytes, 'application/octet-stream');
   addDownload('Download metadata.json', 'metadata.json', `${JSON.stringify(metadata, null, 2)}\n`, 'application/json');
   addDownload('Download results.json', 'results.json', `${JSON.stringify(report, null, 2)}\n`, 'application/json');
+  addDownload('Download pilot-export.json', 'pilot-export.json', `${JSON.stringify({
+    indexBase64: bytesToBase64(indexBytes), metadata, report,
+  })}\n`, 'application/json');
   results.hidden = false;
 }
 
@@ -243,6 +252,8 @@ async function run() {
     rows,
   };
   renderReport(report, indexBytes, metadata);
+  status.dataset.indexBase64 = bytesToBase64(indexBytes);
+  status.dataset.metadata = JSON.stringify(metadata);
   status.dataset.report = JSON.stringify(report);
   setStatus('Benchmark complete.');
   window.vinylBenchmarkResult = report;

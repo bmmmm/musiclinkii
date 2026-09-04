@@ -17,7 +17,8 @@ import {
   buildOcrQueries, fetchImage, pastedImage, rankOcrAlbumCandidates,
   readClipboardImage, recognizeVinylText,
 } from './vinyl-scan.mjs';
-import { canRerankVisually, rerankVinylCandidates } from './visual-match.mjs';
+import { canRerankVisually, embedVinylCover, rerankVinylCandidates } from './visual-match.mjs';
+import { searchVinylCatalog } from './vinyl-index.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -920,6 +921,8 @@ function visualProgress(message) {
     setScanStatus('Analyzing selected cover locally');
   } else if (message.stage === 'reference') {
     setScanStatus(`Comparing catalog artwork ${message.current}/${message.total}`);
+  } else if (message.stage === 'catalog') {
+    setScanStatus(`Searching local cover index ${message.current}/${message.total}`);
   }
 }
 
@@ -940,8 +943,37 @@ async function compareScanArtwork(candidates, gen) {
   }
 }
 
-function renderScanCandidates(candidates, { offerVisualComparison = false } = {}) {
+async function searchScanArtwork(gen) {
+  if (scanBusy || !scanSourceBlob || gen !== scanGeneration) return;
+  setScanBusy(true);
+  try {
+    const queryVector = await embedVinylCover(scanSourceBlob, { onProgress: visualProgress });
+    const result = await searchVinylCatalog(queryVector, { onProgress: visualProgress });
+    if (gen !== scanGeneration) return;
+    renderScanCandidates(result.candidates);
+    setScanStatus(`${result.manifest.releaseCount} pilot covers searched locally. Choose the right album.`);
+  } catch {
+    if (gen === scanGeneration) {
+      setScanStatus('The local cover pilot is unavailable. Correct the text or try another photo.', 'warn');
+    }
+  } finally {
+    if (gen === scanGeneration) setScanBusy(false);
+  }
+}
+
+function renderScanCandidates(candidates, {
+  offerVisualComparison = false,
+  offerCatalogSearch = false,
+} = {}) {
   el.scanCandidates.replaceChildren();
+  if (offerCatalogSearch && scanSourceBlob) {
+    const compare = document.createElement('button');
+    compare.type = 'button';
+    compare.className = 'btn scan-compare';
+    compare.textContent = 'Search the local cover pilot (downloads model and index)';
+    compare.addEventListener('click', () => searchScanArtwork(scanGeneration));
+    el.scanCandidates.appendChild(compare);
+  }
   if (!candidates.length) return;
   const prompt = document.createElement('p');
   prompt.className = 'scan-privacy';
@@ -971,7 +1003,8 @@ function renderScanCandidates(candidates, { offerVisualComparison = false } = {}
     const title = document.createElement('strong');
     title.textContent = candidate.title;
     const artist = document.createElement('small');
-    artist.textContent = candidate.artist;
+    artist.textContent = [candidate.artist, candidate.date?.slice(0, 4), candidate.country]
+      .filter(Boolean).join(' · ');
     copy.append(title, artist);
     button.appendChild(copy);
     button.addEventListener('click', () => {
@@ -985,7 +1018,7 @@ function renderScanCandidates(candidates, { offerVisualComparison = false } = {}
 async function searchRecognizedText(text, gen = scanGeneration) {
   const queries = buildOcrQueries(text);
   if (!queries.length) {
-    renderScanCandidates([]);
+    renderScanCandidates([], { offerCatalogSearch: true });
     setScanStatus('No readable text found. Try a tighter, glare-free photo.', 'warn');
     return;
   }
@@ -993,7 +1026,10 @@ async function searchRecognizedText(text, gen = scanGeneration) {
   const rawCandidates = await findOcrAlbumCandidates(queries);
   if (gen !== scanGeneration) return;
   const candidates = rankOcrAlbumCandidates(rawCandidates, text);
-  renderScanCandidates(candidates, { offerVisualComparison: true });
+  renderScanCandidates(candidates, {
+    offerVisualComparison: true,
+    offerCatalogSearch: !candidates.length,
+  });
   setScanStatus(candidates.length
     ? `${candidates.length} possible ${candidates.length === 1 ? 'match' : 'matches'} found.`
     : 'No album match found. Correct the recognized text or try another photo.',

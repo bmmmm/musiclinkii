@@ -7,8 +7,9 @@ It does not replace OCR. It measures the proposed fallback independently.
 ## Product boundary
 
 The dataset sampler is developer tooling. It is never loaded or invoked by the
-musiclinkii application and must not choose an image for the person using the
-scanner.
+musiclinkii application and must not choose an input image for the person using
+the scanner. The product contains only generated vectors and public release
+identifiers from the accepted rows, not the cached source covers.
 
 In the product, an image may enter the scanner only through an explicit camera,
 file, paste, or URL action. Camera, file, and clipboard bytes stay inside that
@@ -73,10 +74,30 @@ than a vector database and sufficient for validating quality and transfer size.
 At 50,000 covers the raw index is about 19.2 MB; an approximate browser index is
 only justified after exact search latency becomes a measured problem.
 
-The page offers `index.bin`, `metadata.json`, and `results.json` as downloads.
-The same binary index can later be shipped as a static asset and decoded without
-WebAssembly. WebAssembly remains an option for approximate search at larger
-scale, not a prerequisite for the MVP.
+The page offers `index.bin`, `metadata.json`, `results.json`, and a combined
+`pilot-export.json` as downloads. The checked-in asset builder validates the
+model, dimensions, row counts, vinyl formats, and identifiers before writing
+the product manifest and shards:
+
+```sh
+node scripts/build-vinyl-index-assets.mjs \
+  --input .cache/vinyl-benchmark/pilot-export.json
+```
+
+The application downloads those shards only after the explicit local-catalog
+click, scans them exactly in JavaScript, and never transmits the query vector.
+WebAssembly remains an option for approximate search at larger scale, not a
+prerequisite for the MVP.
+
+## Existing bulk index checked
+
+The closest reusable public artifact found was
+[`dyslexi/Music_covers`](https://huggingface.co/datasets/dyslexi/Music_covers):
+3.54 million MusicBrainz release-group rows and 10.4 GB of concatenated
+CLIP-image-plus-text embeddings. It is not vinyl-filtered, uses a different
+model and a 1,536-dimensional format, and would therefore make the client much
+larger without being compatible with this DINOv2 index. It is documented here
+but deliberately not mixed into the product pilot.
 
 ## What the score means
 

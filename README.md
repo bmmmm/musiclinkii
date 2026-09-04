@@ -27,7 +27,9 @@ Everything runs in your browser — there is no backend:
    If OCR leaves multiple candidates, an optional second click downloads
    [DINOv2-small](https://huggingface.co/Xenova/dinov2-small), embeds the
    selected image locally and reorders the catalog covers by visual similarity.
-   It still never selects an album without confirmation.
+   If OCR finds nothing, the same explicit action can search a downloaded static
+   vinyl-cover index entirely in the browser. Neither the image nor its vector is
+   sent anywhere, and no album is selected without confirmation.
 3. **Resolve** — title and artist are fetched from keyless public endpoints
    that allow cross-origin requests (verified empirically):
    [iTunes Lookup/Search](https://performance-partners.apple.com/search-api),
@@ -67,8 +69,10 @@ artist URL relations. The vinyl scanner is an OCR-first alternative input:
 it always shows album candidates for confirmation and never silently picks
 one. When OCR finds two to five plausible albums with cover art, the person
 scanning can explicitly run local visual comparison to improve their order.
-Covers without enough readable text to produce any catalog candidate remain a
-known miss until the static global vector index is ready.
+When OCR finds no catalog candidate, the same button can search the first static
+long-tail pilot: 12 confirmed vinyl releases in a 4,620-byte Int8 vector shard.
+That proves the zero-text path and shard transfer, but it is deliberately labeled
+as a pilot rather than pretending to provide broad catalog coverage.
 
 Short links (`spotify.link`, `link.deezer.com`, `on.soundcloud.com`) can't be
 expanded client-side — open them once and paste the full URL instead.
@@ -124,8 +128,15 @@ node --test 'tests/*.test.mjs'
 
 The visual vinyl fallback has a separate, reproducible
 [long-tail retrieval benchmark](benchmarks/vinyl/README.md). Its sampler keeps
-third-party cover art in an ignored local cache; only the harness and measured
-results belong in the repository.
+third-party cover art in an ignored local cache. The repository ships only the
+generated Int8 vectors and MusicBrainz/Discogs identifiers, never those images.
+After downloading `pilot-export.json` from the benchmark page, rebuild the static
+assets with:
+
+```sh
+node scripts/build-vinyl-index-assets.mjs \
+  --input .cache/vinyl-benchmark/pilot-export.json
+```
 
 **Cache busting is automatic — nothing to bump by hand.** Every asset
 reference in `index.html` carries the marker `v=dev`, and the pages workflow
