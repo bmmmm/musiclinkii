@@ -169,3 +169,15 @@ export function linkFromHash(hash) {
     return null;
   }
 }
+
+export function vinylScanRequested(search) {
+  return new URLSearchParams(search || '').get('scan') === 'vinyl';
+}
+
+export function vinylScanSearch(search, open) {
+  const params = new URLSearchParams(search || '');
+  if (open) params.set('scan', 'vinyl');
+  else params.delete('scan');
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}

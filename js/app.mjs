@@ -5,7 +5,10 @@
 // pipeline. Typing never triggers lookups; "Next search" is the only reset.
 
 import { parseInput, looksLikeLink } from './parsers.mjs';
-import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from './links.mjs';
+import {
+  PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor,
+  linkFromHash, vinylScanRequested, vinylScanSearch,
+} from './links.mjs';
 import {
   fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist, parseFreeText,
   namesakeChipLabel, setMbRetryListener, findOcrAlbumCandidates,
@@ -876,12 +879,18 @@ function setScanBusy(busy) {
   submit.disabled = busy;
 }
 
-function showVinylScanner() {
-  el.vinylScan.hidden = false;
-  el.openVinylScan.hidden = true;
+function writeVinylScanUrl(open) {
+  const search = vinylScanSearch(location.search, open);
+  history.replaceState(null, '', location.pathname + search + location.hash);
 }
 
-function resetVinylScanner() {
+function showVinylScanner({ updateUrl = true } = {}) {
+  el.vinylScan.hidden = false;
+  el.openVinylScan.hidden = true;
+  if (updateUrl) writeVinylScanUrl(true);
+}
+
+function resetVinylScanner({ updateUrl = true } = {}) {
   scanGeneration += 1;
   setScanBusy(false);
   if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
@@ -898,6 +907,7 @@ function resetVinylScanner() {
   setScanStatus('');
   el.vinylScan.hidden = true;
   el.openVinylScan.hidden = false;
+  if (updateUrl) writeVinylScanUrl(false);
 }
 
 function scanProgress(message) {
@@ -1174,4 +1184,9 @@ if (shared) {
   commitFromInput();
 }
 
-el.input.focus();
+if (vinylScanRequested(location.search)) {
+  showVinylScanner({ updateUrl: false });
+  el.scanUrl.focus();
+} else {
+  el.input.focus();
+}

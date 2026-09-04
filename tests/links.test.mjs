@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor, linkFromHash } from '../js/links.mjs';
+import {
+  PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor,
+  linkFromHash, vinylScanRequested, vinylScanSearch,
+} from '../js/links.mjs';
 
 const DE = regionFromLocale('de-DE');
 const US = regionFromLocale('en-US');
@@ -174,6 +177,16 @@ test('share hash carries a non-track search kind', () => {
   const artist = shareHashFor('Daft Punk', 'artist');
   assert.equal(artist, '#l=Daft%20Punk&k=artist');
   assert.deepEqual(linkFromHash(artist), { link: 'Daft Punk', kind: 'artist' });
+});
+
+test('the vinyl scanner has a stable deep-link query', () => {
+  assert.equal(vinylScanRequested('?scan=vinyl'), true);
+  assert.equal(vinylScanRequested('?scan=other'), false);
+  assert.equal(vinylScanRequested(''), false);
+  assert.equal(vinylScanSearch('', true), '?scan=vinyl');
+  assert.equal(vinylScanSearch('?verify=build', true), '?verify=build&scan=vinyl');
+  assert.equal(vinylScanSearch('?verify=build&scan=vinyl', false), '?verify=build');
+  assert.equal(vinylScanSearch('?scan=vinyl', false), '');
 });
 
 test('buildQuery joins and trims', () => {
