@@ -62,9 +62,14 @@
       </p>
       <div class="model-storage" aria-live="polite">
         <div class="model-info">
-          <strong>DINOv2 Small</strong>
-          <span>q4 ONNX · 384 dimensions · 15.0 MB model files</span>
-          <a href="https://huggingface.co/Xenova/dinov2-small" target="_blank" rel="noopener noreferrer">Xenova/dinov2-small on Hugging Face</a>
+          <label for="visual-model-select"><strong>Visual matching model</strong></label>
+          <select id="visual-model-select">
+            <option value="small">Small — 15.0 MB · fastest</option>
+            <option value="base" selected>Base — 56.4 MB · recommended</option>
+            <option value="large">Large — 194.1 MB · highest detail</option>
+          </select>
+          <span id="visual-model-details"></span>
+          <a id="visual-model-url" target="_blank" rel="noopener noreferrer"></a>
           <span id="visual-model-state">Checking this device…</span>
         </div>
         <div class="model-actions">

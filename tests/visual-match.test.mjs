@@ -11,20 +11,26 @@ import {
   rankVisualCandidates,
   rerankVinylCandidates,
   visualModelStored,
+  visualModelCache,
   VISUAL_MODEL,
+  VISUAL_MODELS,
   VISUAL_MODEL_CACHE,
 } from '../js/visual-match.mjs';
 
 test('visual model metadata describes the exact q4 files loaded by the pipeline', () => {
   assert.deepEqual(VISUAL_MODEL, {
+    key: 'small',
     name: 'DINOv2 Small',
     repository: 'Xenova/dinov2-small',
     variant: 'q4 ONNX',
     dimensions: 384,
     bytes: 15035808,
     url: 'https://huggingface.co/Xenova/dinov2-small',
-    fileUrl: 'https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_q4.onnx',
   });
+  assert.deepEqual(Object.keys(VISUAL_MODELS), ['small', 'base', 'large']);
+  assert.equal(VISUAL_MODELS.base.bytes, 56429520);
+  assert.equal(VISUAL_MODELS.large.bytes, 194059408);
+  assert.notEqual(visualModelCache('small'), visualModelCache('base'));
 });
 
 function memoryCacheStorage() {
@@ -60,6 +66,17 @@ test('the visual model owns a persistent cache with an explicit delete path', as
   assert.equal(await visualModelStored({ cacheStorage }), true);
   assert.equal(await clearVisualModel({ cacheStorage }), true);
   assert.equal(await visualModelStored({ cacheStorage }), false);
+});
+
+test('model sizes use independent caches and deletion affects only the selected model', async () => {
+  const cacheStorage = memoryCacheStorage();
+  await markVisualModelStored({ modelKey: 'small', cacheStorage });
+  await markVisualModelStored({ modelKey: 'base', cacheStorage });
+  assert.equal(await visualModelStored({ modelKey: 'small', cacheStorage }), true);
+  assert.equal(await visualModelStored({ modelKey: 'base', cacheStorage }), true);
+  await clearVisualModel({ modelKey: 'base', cacheStorage });
+  assert.equal(await visualModelStored({ modelKey: 'small', cacheStorage }), true);
+  assert.equal(await visualModelStored({ modelKey: 'base', cacheStorage }), false);
 });
 
 test('a previously downloaded DINO model migrates without touching foreign cache rows', async () => {

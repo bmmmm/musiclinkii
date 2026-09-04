@@ -22,7 +22,8 @@ import {
 } from './vinyl-scan.mjs';
 import {
   canRerankVisually, clearVisualModel, embedVinylCover, rerankVinylCandidates,
-  migrateLegacyVisualModel, prepareVisualModel, visualModelStored,
+  DEFAULT_VISUAL_MODEL, migrateLegacyVisualModel, prepareVisualModel,
+  visualModelStored, VISUAL_MODELS,
 } from './visual-match.mjs';
 import { searchVinylCatalog } from './vinyl-index.mjs';
 
@@ -57,6 +58,9 @@ const el = {
   scanPreview: $('#scan-preview'),
   scanStatus: $('#scan-status'),
   visualModelState: $('#visual-model-state'),
+  visualModelSelect: $('#visual-model-select'),
+  visualModelDetails: $('#visual-model-details'),
+  visualModelUrl: $('#visual-model-url'),
   downloadVisualModel: $('#download-visual-model'),
   deleteVisualModel: $('#delete-visual-model'),
   scanTextWrap: $('#scan-text-wrap'),
@@ -868,6 +872,19 @@ let scanGeneration = 0;
 let scanPreviewUrl = '';
 let scanBusy = false;
 let scanSourceBlob = null;
+const VISUAL_MODEL_PREFERENCE = 'musiclinkii-visual-model';
+
+function savedVisualModel() {
+  try {
+    const saved = localStorage.getItem(VISUAL_MODEL_PREFERENCE);
+    return VISUAL_MODELS[saved] ? saved : DEFAULT_VISUAL_MODEL;
+  } catch {
+    return DEFAULT_VISUAL_MODEL;
+  }
+}
+
+let visualModelKey = savedVisualModel();
+el.visualModelSelect.value = visualModelKey;
 
 function setScanStatus(text, tone = 'info') {
   setLine(el.scanStatus, text, tone);
@@ -877,7 +894,7 @@ function setScanBusy(busy) {
   scanBusy = busy;
   for (const node of [
     el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind,
-    el.downloadVisualModel, el.deleteVisualModel,
+    el.visualModelSelect, el.downloadVisualModel, el.deleteVisualModel,
     ...el.scanCandidates.querySelectorAll('button'),
   ]) {
     node.disabled = busy;
@@ -887,6 +904,10 @@ function setScanBusy(busy) {
 }
 
 function renderVisualModelStorage(stored, text = '') {
+  const model = VISUAL_MODELS[visualModelKey];
+  el.visualModelDetails.textContent = `${model.variant} · ${model.dimensions} dimensions · ${(model.bytes / 1e6).toFixed(1)} MB model files`;
+  el.visualModelUrl.href = model.url;
+  el.visualModelUrl.textContent = `${model.repository} on Hugging Face`;
   el.visualModelState.textContent = text || (stored
     ? 'Stored on this device'
     : 'Not stored — downloaded only when you choose');
@@ -898,7 +919,7 @@ function renderVisualModelStorage(stored, text = '') {
 async function refreshVisualModelStorage() {
   try {
     await migrateLegacyVisualModel();
-    renderVisualModelStorage(await visualModelStored());
+    renderVisualModelStorage(await visualModelStored({ modelKey: visualModelKey }));
   } catch {
     renderVisualModelStorage(false, 'Browser storage unavailable');
   }
@@ -949,12 +970,14 @@ function scanProgress(message) {
   setScanStatus(label + percent);
 }
 
-function visualProgress(message) {
+function visualProgress(message, modelKey = visualModelKey) {
   if (message.stage === 'model') {
     setScanStatus(`Loading visual model ${message.percent}%`);
-    renderVisualModelStorage(false, `Downloading model ${message.percent}%`);
+    if (modelKey === visualModelKey) {
+      renderVisualModelStorage(false, `Downloading model ${message.percent}%`);
+    }
   } else if (message.stage === 'model-ready') {
-    renderVisualModelStorage(true);
+    if (modelKey === visualModelKey) renderVisualModelStorage(true);
   } else if (message.stage === 'query') {
     setScanStatus('Analyzing selected cover locally');
   } else if (message.stage === 'reference') {
@@ -968,7 +991,10 @@ async function compareScanArtwork(candidates, gen) {
   if (scanBusy || !scanSourceBlob || gen !== scanGeneration) return;
   setScanBusy(true);
   try {
-    const ranked = await rerankVinylCandidates(scanSourceBlob, candidates, { onProgress: visualProgress });
+    const ranked = await rerankVinylCandidates(scanSourceBlob, candidates, {
+      modelKey: visualModelKey,
+      onProgress: visualProgress,
+    });
     if (gen !== scanGeneration) return;
     renderScanCandidates(ranked);
     setScanStatus('Artwork compared locally. Choose the right album.');
@@ -985,7 +1011,10 @@ async function searchScanArtwork(gen) {
   if (scanBusy || !scanSourceBlob || gen !== scanGeneration) return;
   setScanBusy(true);
   try {
-    const queryVector = await embedVinylCover(scanSourceBlob, { onProgress: visualProgress });
+    const queryVector = await embedVinylCover(scanSourceBlob, {
+      modelKey: 'small',
+      onProgress: (message) => visualProgress(message, 'small'),
+    });
     const result = await searchVinylCatalog(queryVector, { onProgress: visualProgress });
     if (gen !== scanGeneration) return;
     renderScanCandidates(result.candidates);
@@ -1008,7 +1037,7 @@ function renderScanCandidates(candidates, {
     const compare = document.createElement('button');
     compare.type = 'button';
     compare.className = 'btn scan-compare';
-    compare.textContent = 'Search the local cover pilot (downloads model and index)';
+    compare.textContent = 'Search the local 12-cover pilot (uses Small)';
     compare.addEventListener('click', () => searchScanArtwork(scanGeneration));
     el.scanCandidates.appendChild(compare);
   }
@@ -1151,12 +1180,19 @@ el.scanPaste.addEventListener('click', () => {
   el.scanPaste.focus();
   setScanStatus('Press ⌘V or Ctrl+V to paste an image.');
 });
+el.visualModelSelect.addEventListener('change', async () => {
+  visualModelKey = el.visualModelSelect.value;
+  try {
+    localStorage.setItem(VISUAL_MODEL_PREFERENCE, visualModelKey);
+  } catch { /* selection still works for this page */ }
+  await refreshVisualModelStorage();
+});
 el.downloadVisualModel.addEventListener('click', async () => {
   if (scanBusy) return;
   setScanBusy(true);
   renderVisualModelStorage(false, 'Preparing model download…');
   try {
-    await prepareVisualModel({ onProgress: visualProgress });
+    await prepareVisualModel({ modelKey: visualModelKey, onProgress: visualProgress });
     renderVisualModelStorage(true);
     setScanStatus('The visual model is ready and stays on this device.');
   } catch {
@@ -1171,7 +1207,7 @@ el.deleteVisualModel.addEventListener('click', async () => {
   el.deleteVisualModel.disabled = true;
   renderVisualModelStorage(true, 'Deleting model…');
   try {
-    await clearVisualModel();
+    await clearVisualModel({ modelKey: visualModelKey });
     renderVisualModelStorage(false);
     setScanStatus('The local visual model was deleted. It will download again when needed.');
   } catch {

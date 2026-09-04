@@ -31,7 +31,9 @@ Everything runs in your browser — there is no backend:
    vinyl-cover index entirely in the browser. Neither the image nor its vector is
    sent anywhere, and no album is selected without confirmation. The visual model
    remains in Musiclinkii's browser cache across visits until the person using the
-   scanner chooses **Delete local model** or clears the site's browser data. Models
+   scanner chooses **Delete local model** or clears the site's browser data. Small,
+   Base and Large q4 variants can be selected independently; the choice is remembered
+   by the browser and each downloaded variant has its own cache. Models
    downloaded before the dedicated cache existed are migrated without downloading
    them again.
 3. **Resolve** — title and artist are fetched from keyless public endpoints

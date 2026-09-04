@@ -54,11 +54,14 @@ test('image paste waits for a user paste event instead of requesting clipboard a
   assert.match(html, /id="scan-paste"[\s\S]*press ⌘V or Ctrl\+V/i);
 });
 
-test('the scanner exposes exact visual-model details, download, storage state and deletion', () => {
-  assert.match(html, /DINOv2 Small/);
-  assert.match(html, /q4 ONNX · 384 dimensions · 15\.0 MB model files/);
-  assert.match(html, /href="https:\/\/huggingface\.co\/Xenova\/dinov2-small"/);
+test('the scanner offers every DINOv2 size with download, storage state and deletion', () => {
+  assert.match(html, /Small — 15\.0 MB · fastest/);
+  assert.match(html, /Base — 56\.4 MB · recommended/);
+  assert.match(html, /Large — 194\.1 MB · highest detail/);
+  assert.match(html, /id="visual-model-details"/);
+  assert.match(html, /id="visual-model-url"/);
   assert.match(html, /id="visual-model-state"/);
   assert.match(html, /id="download-visual-model"[\s\S]*Download model/);
   assert.match(html, /id="delete-visual-model"[\s\S]*Delete local model/);
+  assert.match(app, /Search the local 12-cover pilot \(uses Small\)/);
 });

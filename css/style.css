@@ -253,6 +253,15 @@ h1 {
 .model-info { flex-direction: column; }
 .model-info strong { color: var(--text); }
 .model-info a { color: var(--accent); }
+.model-info select {
+  max-width: 100%;
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+}
 
 .model-actions {
   flex: 0 0 auto;

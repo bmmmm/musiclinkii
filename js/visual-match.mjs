@@ -4,16 +4,25 @@
 // public catalog thumbnails are downloaded for comparison.
 
 const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
-const MODEL = 'Xenova/dinov2-small';
-export const VISUAL_MODEL = Object.freeze({
-  name: 'DINOv2 Small',
-  repository: MODEL,
-  variant: 'q4 ONNX',
-  dimensions: 384,
-  bytes: 15035808,
-  url: 'https://huggingface.co/Xenova/dinov2-small',
-  fileUrl: 'https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_q4.onnx',
+export const VISUAL_MODELS = Object.freeze({
+  small: Object.freeze({
+    key: 'small', name: 'DINOv2 Small', repository: 'Xenova/dinov2-small',
+    variant: 'q4 ONNX', dimensions: 384, bytes: 15035808,
+    url: 'https://huggingface.co/Xenova/dinov2-small',
+  }),
+  base: Object.freeze({
+    key: 'base', name: 'DINOv2 Base', repository: 'Xenova/dinov2-base',
+    variant: 'q4 ONNX', dimensions: 768, bytes: 56429520,
+    url: 'https://huggingface.co/Xenova/dinov2-base',
+  }),
+  large: Object.freeze({
+    key: 'large', name: 'DINOv2 Large', repository: 'Xenova/dinov2-large',
+    variant: 'q4 ONNX', dimensions: 1024, bytes: 194059408,
+    url: 'https://huggingface.co/Xenova/dinov2-large',
+  }),
 });
+export const DEFAULT_VISUAL_MODEL = 'base';
+export const VISUAL_MODEL = VISUAL_MODELS.small;
 export const VISUAL_MODEL_CACHE = 'musiclinkii-visual-model-v1';
 const LEGACY_MODEL_CACHE = 'transformers-cache';
 const MODEL_URL_FRAGMENT = '/Xenova/dinov2-small/';
@@ -25,17 +34,29 @@ const MAX_REFERENCE_BYTES = 5 * 1024 * 1024;
 const OCR_WEIGHT = 0.3;
 const VISUAL_WEIGHT = 0.7;
 
-let extractorPromise;
+const extractorPromises = new Map();
 
-export async function visualModelStored({ cacheStorage = globalThis.caches } = {}) {
-  if (!cacheStorage || !await cacheStorage.has(VISUAL_MODEL_CACHE)) return false;
-  const cache = await cacheStorage.open(VISUAL_MODEL_CACHE);
+function selectedModel(modelKey) {
+  const model = VISUAL_MODELS[modelKey];
+  if (!model) throw new Error(`Unknown visual model: ${modelKey}`);
+  return model;
+}
+
+export function visualModelCache(modelKey = 'small') {
+  selectedModel(modelKey);
+  return modelKey === 'small' ? VISUAL_MODEL_CACHE : `${VISUAL_MODEL_CACHE}-${modelKey}`;
+}
+
+export async function visualModelStored({ modelKey = 'small', cacheStorage = globalThis.caches } = {}) {
+  const cacheName = visualModelCache(modelKey);
+  if (!cacheStorage || !await cacheStorage.has(cacheName)) return false;
+  const cache = await cacheStorage.open(cacheName);
   return Boolean(await cache.match(MODEL_READY_URL.href));
 }
 
-export async function markVisualModelStored({ cacheStorage = globalThis.caches } = {}) {
+export async function markVisualModelStored({ modelKey = 'small', cacheStorage = globalThis.caches } = {}) {
   if (!cacheStorage) return false;
-  const cache = await cacheStorage.open(VISUAL_MODEL_CACHE);
+  const cache = await cacheStorage.open(visualModelCache(modelKey));
   await cache.put(MODEL_READY_URL.href, new Response('ready', {
     headers: { 'Content-Type': 'text/plain' },
   }));
@@ -66,9 +87,10 @@ export async function migrateLegacyVisualModel({ cacheStorage = globalThis.cache
   return true;
 }
 
-export async function clearVisualModel({ cacheStorage = globalThis.caches } = {}) {
-  const currentExtractor = extractorPromise;
-  extractorPromise = null;
+export async function clearVisualModel({ modelKey = 'small', cacheStorage = globalThis.caches } = {}) {
+  selectedModel(modelKey);
+  const currentExtractor = extractorPromises.get(modelKey);
+  extractorPromises.delete(modelKey);
   if (currentExtractor) {
     try {
       const extractor = await currentExtractor;
@@ -76,8 +98,8 @@ export async function clearVisualModel({ cacheStorage = globalThis.caches } = {}
     } catch { /* a failed model load has nothing left to dispose */ }
   }
   if (!cacheStorage) return false;
-  let removed = await cacheStorage.delete(VISUAL_MODEL_CACHE);
-  if (await cacheStorage.has(LEGACY_MODEL_CACHE)) {
+  let removed = await cacheStorage.delete(visualModelCache(modelKey));
+  if (modelKey === 'small' && await cacheStorage.has(LEGACY_MODEL_CACHE)) {
     const legacy = await cacheStorage.open(LEGACY_MODEL_CACHE);
     for (const request of await legacyModelRequests(cacheStorage)) {
       removed = await legacy.delete(request) || removed;
@@ -134,13 +156,14 @@ function modelVector(output) {
   return Float32Array.from(tensor.data.subarray(0, dimension));
 }
 
-async function loadExtractor(onProgress) {
-  if (!extractorPromise) {
-    extractorPromise = import(TRANSFORMERS_URL).then(async ({ env, pipeline }) => {
+async function loadExtractor(modelKey, onProgress) {
+  const model = selectedModel(modelKey);
+  if (!extractorPromises.has(modelKey)) {
+    const loading = import(TRANSFORMERS_URL).then(async ({ env, pipeline }) => {
       env.allowLocalModels = false;
       env.useBrowserCache = true;
-      env.cacheKey = VISUAL_MODEL_CACHE;
-      const extractor = await pipeline('image-feature-extraction', MODEL, {
+      env.cacheKey = visualModelCache(modelKey);
+      const extractor = await pipeline('image-feature-extraction', model.repository, {
         dtype: DTYPE,
         progress_callback: (progress) => {
           if (progress.status === 'progress' && progress.file) {
@@ -152,20 +175,21 @@ async function loadExtractor(onProgress) {
           }
         },
       });
-      await markVisualModelStored().catch(() => false);
+      await markVisualModelStored({ modelKey }).catch(() => false);
       return extractor;
     }).catch((error) => {
-      extractorPromise = null;
+      extractorPromises.delete(modelKey);
       throw error;
     });
+    extractorPromises.set(modelKey, loading);
   }
-  const extractor = await extractorPromise;
+  const extractor = await extractorPromises.get(modelKey);
   onProgress({ stage: 'model-ready' });
   return extractor;
 }
 
-export async function prepareVisualModel({ onProgress = () => {} } = {}) {
-  await loadExtractor(onProgress);
+export async function prepareVisualModel({ modelKey = DEFAULT_VISUAL_MODEL, onProgress = () => {} } = {}) {
+  await loadExtractor(modelKey, onProgress);
 }
 
 async function vectorFromBlob(blob, extractor) {
@@ -179,12 +203,13 @@ async function vectorFromBlob(blob, extractor) {
 
 export async function embedVinylCover(imageBlob, {
   extractor,
+  modelKey = DEFAULT_VISUAL_MODEL,
   onProgress = () => {},
 } = {}) {
   if (!(imageBlob instanceof Blob) || !imageBlob.type.startsWith('image/')) {
     throw new Error('A selected image is required for visual comparison');
   }
-  const visualExtractor = extractor || await loadExtractor(onProgress);
+  const visualExtractor = extractor || await loadExtractor(modelKey, onProgress);
   onProgress({ stage: 'query' });
   return vectorFromBlob(imageBlob, visualExtractor);
 }
@@ -204,14 +229,15 @@ async function referenceBlob(url, fetcher) {
 
 export async function rerankVinylCandidates(imageBlob, candidates, {
   extractor,
+  modelKey = DEFAULT_VISUAL_MODEL,
   fetcher = globalThis.fetch,
   onProgress = () => {},
 } = {}) {
   if (!canRerankVisually(candidates)) throw new Error('Visual comparison requires two to five candidates with artwork');
   if (typeof fetcher !== 'function') throw new Error('A fetch implementation is required');
 
-  const visualExtractor = extractor || await loadExtractor(onProgress);
-  const queryVector = await embedVinylCover(imageBlob, { extractor: visualExtractor, onProgress });
+  const visualExtractor = extractor || await loadExtractor(modelKey, onProgress);
+  const queryVector = await embedVinylCover(imageBlob, { extractor: visualExtractor, modelKey, onProgress });
   const candidateVectors = [];
   for (let index = 0; index < candidates.length; index += 1) {
     onProgress({ stage: 'reference', current: index + 1, total: candidates.length });
