@@ -160,6 +160,94 @@ hält, ist offen (Meilenstein 2). 500-px-Thumbnails sind ~2,6-mal größer
 - **Product Quantization**: bei ≤ 1 Mio. Vektoren mit IVF unnötig; Option,
   falls der Index deutlich wächst.
 
+## Prüfstufe mit lokalen Merkmalen (erkundet 2026-09-06)
+
+Frage: Lohnt eine zweite Stufe, die die Top-5-Kandidaten mit lokalen
+Merkmalen (Keypoints plus RANSAC-Homographie, oder DINOv2-Patch-Tokens)
+verifiziert und Pressungen mit identischem Artwork unterscheidet? Testdaten:
+65 Cover, je eine mild- und hard-Variante nach dem Rezept aus
+`benchmarks/vinyl/runner.mjs`, 40 synthetische Pressungen (Katalogstreifen,
+Aufkleber) und 24 echte CAA-Frontcover aus drei Release-Groups (je 8
+offizielle 12"-Pressungen von Dark Side of the Moon, Abbey Road, Rumours).
+Alle DINOv2-Zahlen gelten für `Xenova/dinov2-small` q4. Skripte,
+Ergebnisdateien und die MBIDs der echten Pressungen liegen unter
+`benchmarks/vinyl/spikes/2026-09-06-local-features/`; die Bilder nicht.
+
+### Verifikation der Kandidaten
+
+Recall@1 über 130 Queries; die CLS- und die Patch-Zeile messen gegen die vier
+härtesten Impostor je Query (520 Falschpaare), die Keypoint-Zeilen gegen alle
+65 Originale.
+
+| Verfahren | Recall@1 | Annahme ohne Falschtreffer | Kosten |
+|---|---:|---|---|
+| CLS-Cosinus allein (heutige Pipeline) | 130/130 | 126/130 bei Schwelle 0,73, 0 von 520 | keine |
+| DINOv2-Patch-Tokens, wechselseitige Nachbarn ≥ 0,7 | 130/130 | 128/130 bei Schwelle 60, 0 von 520 | geschätzt ~126 ms je Suche in JS (25 M MAC je Paar, 1 G MAC/s angenommen); 98 KB Tokens je Cover im Index statt 384 B (Schwellen an fp32-Tokens gemessen) oder 43 ms Forward-Pass je Kandidat |
+| SIFT bei 500/640 px + RANSAC + Geometrie-Gate | 130/130 | 130/130 wahr, 0/130 härteste Falschpaare, 0/192 fremdes Artwork | 264 ms nativ je Suche gegen 5 Kandidaten; bei 250 px bleibt Recall 130/130, das Gate wurde dort nicht gemessen (schlechtester Falschkandidat 84 Inlier); 29 ms nur mit vorberechneten Deskriptoren (~58 KB je Cover), kalt 97 ms; Browser-Faktor ungemessen |
+| ORB 1500 bei 250 px / AKAZE bei 500 px | je 129/130 | je 1 Falschtreffer trotz Gate (23 bzw. 57 Inlier); je 3 hard-Queries unter 8 Inliern | ORB ~14 ms nativ |
+
+Die Suche ist auf diesem Datensatz schon gesättigt; keine Prüfstufe verbessert
+das Ranking. Ein nacktes Inlier-Minimum ist gefährlich: 34 % der Paare mit
+verschiedenem Artwork (65 von 192) erreichen 8 Inlier, einmal 48. Erst das
+Geometrie-Gate (konvexes Viereck, Flächenverhältnis 0,25–4, Seitenverhältnis
+≤ 2) macht den Inlier-Wert brauchbar. Texturarme Cover sind das Risiko jedes
+Keypoint-Verfahrens: Die acht Dark-Side-Scans liefern 33 bis 965
+SIFT-Punkte, drei davon unter 140, teils weil CAA nur 300-px-Bilder hat; 5 von
+84 echten Pressungspaaren lassen sich nicht ausrichten, alle bei Dark Side.
+Der CLS-Vektor trennt dieselben Cover sauber (innerhalb der Release-Group
+≥ 0,585, fremdes Artwork ≤ 0,310).
+
+### Pressungen unterscheiden
+
+Negativ, mit beiden Verfahren. Nach der Ausrichtung überlappt das Restbild der
+79 echten Pressungspaare (≤ 500 px) mit dem Restbild der 40 synthetischen
+Fotovarianten aus dem 65er-Set (beste Genauigkeit 0,83, kein trennender
+Schwellwert). Auf dem synthetischen Overlay-Set trennen lokalisierte
+Statistiken (Maximum zu Median) die 40 Overlays perfekt, weil der Hintergrund
+dort pixelidentisch ist; auf echten Paaren fällt dieselbe Statistik auf 0,66.
+Echte Pressungsunterschiede sind global verteilt (Farbstich, Scanqualität,
+Anschnitt), Fotostörungen dagegen lokal (Glanz), also zeigt die Statistik in
+die falsche Richtung. Ein synthetischer Aufkleber, gegen die hard-Variante
+gesucht, bleibt in 10 von 20 Fällen unter dem Eigenrauschen des Fotos, ein
+Katalogstreifen in 16 von 20. DINOv2-Patches erreichen auf den synthetischen
+Paaren Zufallsniveau (0,54); auf den echten Paaren gegen Fotovarianten liegen
+die besten Scores bei 0,65–0,69 mit auf denselben Daten optimierter Schwelle,
+Basisrate 0,61. Abbey-Road-Pressungen liegen untereinander bei CLS
+0,927–0,969, Handyfotos derselben Pressung bei 0,616–0,973. Dazu kommt ein
+struktureller Grund: Die DINOv2-Vorverarbeitung behält nur das Band von
+6,25 % bis 93,75 % des Bildes; vom Katalogstreifen am unteren Rand bleiben
+geometrisch 1,9, nach Resampling 4 bis 10 von 224 Zeilen. Ungeprüft blieb ein
+Held-out-Set echter Handyfotos; alle Kontrollen sind synthetisch.
+
+### Entscheidung
+
+- Keine Keypoint-Stufe für v1. Erst das Held-out-Set echter Handyfotos kann
+  zeigen, ob das Ranking überhaupt Fehler macht; auf synthetischen Varianten
+  macht es keine.
+- Braucht die UI ein „kein Treffer", ist 0,73 (small q4, 650 synthetische
+  Paare) ein Startwert für die CLS-Schwelle, keine Kalibrierung; die
+  Folgerung oben bleibt gültig. Der Patch-Nachbar-Zähler ist nur im
+  Rerank-Pfad gratis, weil `rerankVinylCandidates` die Kandidaten-Thumbnails
+  ohnehin einbettet und `modelVector` die Patch-Tokens heute wegwirft; im
+  Index-Pfad kostet er 43 ms je Kandidat oder 98 KB je Cover. Der Rerank-Pfad
+  läuft standardmäßig auf `base` (768-d), dort gelten andere Skalen.
+- Pressungen werden nicht aus dem Bild unterschieden, sondern über `aliases`
+  plus Metadaten zur Auswahl angeboten; Katalognummer und Land liest OCR vom
+  vollen Bild, das die Ränder sieht.
+- Recherche: OpenCV.js ist Apache-2.0, der 4.x-Build ~11 MB
+  (<https://docs.opencv.org/4.x/opencv.js>), die JS-Bindings enthalten ORB,
+  AKAZE, BRISK und `findHomography` mit RANSAC, aber kein SIFT
+  (<https://github.com/opencv/opencv/blob/4.x/platforms/js/opencv_js.config.py>);
+  jsfeat (<https://github.com/inspirit/jsfeat>) hat den letzten Commit von
+  2018; Transformers.js führt kein Keypoint-Modell
+  (<https://github.com/huggingface/transformers.js>); SuperPoint-Gewichte sind
+  nur nicht-kommerziell nutzbar
+  (<https://github.com/magicleap/SuperPointPretrainedNetwork>); XFeat ist
+  Apache-2.0 ohne Web-Pfad (<https://github.com/verlab/accelerated_features>).
+  Microsofts Record Scanner beschreibt globale Embeddings plus Vektorsuche,
+  keine Verifikationsstufe
+  (<https://devblogs.microsoft.com/cosmosdb/record-scanner-for-vinyl-collectors-cuts-costs-with-azure-cosmos-db-vector-search/>).
+
 ## Datenmodell und Quellen
 
 - **MusicBrainz** ist die kanonische Quelle für Release-Identitäten. Ein

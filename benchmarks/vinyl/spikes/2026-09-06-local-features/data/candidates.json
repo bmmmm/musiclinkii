@@ -1,0 +1,476 @@
+[
+ {
+  "album": "Abbey_Road",
+  "mbid": "c15a59e7-194c-437d-b8b0-c2eaebd806c2",
+  "country": "US",
+  "date": "1976"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "ecd965f4-f75f-4360-9dde-26f31dc44f46",
+  "country": "US",
+  "date": "2012"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "e3e99a28-628b-31a2-9579-36cd98d8bb64",
+  "country": "JP",
+  "date": "2004"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "d5f3d527-edb8-4534-a1c6-1e433262e5c1",
+  "country": "CA",
+  "date": "1976"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "27f534f7-12c5-4c56-8dda-39fbdad10c17",
+  "country": "US",
+  "date": "1980"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "3c2cfb3b-063e-4742-bb88-6699ef674589",
+  "country": "XE",
+  "date": "2012"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "03437e02-835f-3a0a-a37c-48a36c2e852a",
+  "country": "ES",
+  "date": "1969"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "d02efe1b-edce-3957-aafb-345e1a0a4844",
+  "country": "US",
+  "date": "1987"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "46264b17-694c-468a-8233-6b79bbb1b8b5",
+  "country": "IT",
+  "date": "1975"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "d5625820-d8fb-403a-a920-c40d62c406fe",
+  "country": "US",
+  "date": "1986"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "05e77dbd-1c4f-4e5e-8461-caac6e5fbae7",
+  "country": "GB",
+  "date": "1969"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "e12f53a3-e912-321d-bdc7-ed17ec525ec0",
+  "country": "US",
+  "date": "1995"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "eca8996a-a637-3259-ba07-d2573c601a1b",
+  "country": "DE",
+  "date": "1969"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "446abb00-2ffb-38bb-b544-512c70df7c97",
+  "country": "DE",
+  "date": "1979"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "d22a8ade-c223-4550-9775-265e0788a4b2",
+  "country": "US",
+  "date": "1982"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "53f352b2-983c-4af2-b19d-577dec0f9f4a",
+  "country": "JP",
+  "date": "1973"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "ed787f95-6668-4767-889c-0e4a720c739f",
+  "country": "GB",
+  "date": "1970"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "d6010be3-98f8-422c-a6c9-787e2e491e58",
+  "country": "GB",
+  "date": "1969"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "ffd6ebf5-10c1-3cca-915e-04c0aba926f3",
+  "country": "US",
+  "date": "1969"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "964e8152-d86d-4b88-9b79-2f561db6c124",
+  "country": "JP",
+  "date": "1978"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "406b03b5-b5ee-4efe-a644-ccbcfa6b7d26",
+  "country": "US",
+  "date": "2025"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "fb8422c6-e6c8-405c-b713-2b22485a812a",
+  "country": null,
+  "date": ""
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "7a2075a2-ab80-4225-b20d-63b6b9c6a20d",
+  "country": "XE",
+  "date": "2019"
+ },
+ {
+  "album": "Abbey_Road",
+  "mbid": "c4783e19-c30e-400f-bd5a-4d7209c22ba0",
+  "country": "US",
+  "date": "2019"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "7ec069c0-4424-3169-8ed0-d5e2473e0e84",
+  "country": "GB",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "081ea37e-db59-4332-8cd2-ad020cb93af6",
+  "country": "US",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "15504189-661a-4e33-8bd0-3e52a3249b84",
+  "country": "XG",
+  "date": "1979"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "cce890f6-1971-4814-a044-9e7f1f56bbdf",
+  "country": "DE",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "eafa5bbd-7510-4195-8bf8-74d091871548",
+  "country": "US",
+  "date": "2011"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "0d6324af-beec-4e93-bb9c-9a30d0ef6dce",
+  "country": "US",
+  "date": "2011"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "7af0eb9d-0c96-4b7b-93b3-87b87d0fd9e6",
+  "country": "XW",
+  "date": "2020"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "1cbf8f07-a088-4d44-8b54-edd27630a9d9",
+  "country": "NL",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "34879cc9-1967-4d3a-952c-ec6f7e5a2050",
+  "country": "US",
+  "date": "2011"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "2aaa32d6-9c4f-45e1-a2d1-9233addb354f",
+  "country": "US",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "a08fda6c-c3e2-46b1-ad15-fc2df5613ded",
+  "country": "NZ",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "383a90b2-c1dd-4bd6-bd64-f21e2264f65f",
+  "country": "GB",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "9fdbb485-a8f2-453d-9449-bfc7fc2101fe",
+  "country": "JP",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "29c381a2-0118-4db9-8a09-970c56b7c29b",
+  "country": "XE",
+  "date": "2011"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "53f66d6b-fb4c-42cd-a75e-783e149e8821",
+  "country": "XE",
+  "date": "2020"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "9e550b87-12bd-4d90-be09-8e37d4f00db4",
+  "country": "XE",
+  "date": ""
+ },
+ {
+  "album": "Rumours",
+  "mbid": "1d4e696c-2ce8-46ee-a89a-a459482eca73",
+  "country": "XE",
+  "date": "2021"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "be129621-8a7e-4e41-b539-81b4c54d4b54",
+  "country": null,
+  "date": ""
+ },
+ {
+  "album": "Rumours",
+  "mbid": "780442a7-23d5-4970-a6f3-cdf0147430a9",
+  "country": "US",
+  "date": "2011"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "284b3e4c-0c48-4860-957f-cba14e69a81d",
+  "country": "US",
+  "date": "2020"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "978d8d87-46bf-4405-9e6a-84b02768cbfd",
+  "country": "CA",
+  "date": "2022"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "23de26f2-2eb1-4e9f-9709-748654535c51",
+  "country": "PT",
+  "date": "1977"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "57c03ac3-9cef-4d30-9353-13d9c43d2b3c",
+  "country": "DE",
+  "date": "1983"
+ },
+ {
+  "album": "Rumours",
+  "mbid": "efa07bd0-305d-40a8-ac2a-a77a28be8a55",
+  "country": "US",
+  "date": "2013"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "3df425d2-b33e-424c-acd3-d949ea09e2c8",
+  "country": "GB",
+  "date": "2016"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "61288af4-6fdb-42be-b94e-7e7b90258951",
+  "country": "DE",
+  "date": "1978"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "956fbc58-362d-43b8-b880-3779e0508559",
+  "country": "DE",
+  "date": "1977"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "6f69054c-cde6-446b-9c0e-fbbefd1197b2",
+  "country": "CA",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "3fde611f-de09-46c9-8233-731b3e2ed76f",
+  "country": "YU",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "37dba27d-895a-4d74-9679-d39f7c816f4b",
+  "country": "US",
+  "date": "2016"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "29e1c397-5030-4d89-ae02-95b849d8d596",
+  "country": "JP",
+  "date": "1974"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "c05dc459-a27d-4416-a98a-4bad433dfdb9",
+  "country": "US",
+  "date": "2016"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "e2958fed-eb3d-43e4-a824-65ba7995b80f",
+  "country": "FR",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "b8ee4313-2915-40f1-913d-ac0315b4ba3d",
+  "country": "GB",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "86a0a552-74ec-4a5e-ab8f-bfd9a73af726",
+  "country": "XE",
+  "date": "2011"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "ef6aff99-9a42-4dd6-b2db-c0e51bddb52c",
+  "country": "FR",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "4534f168-c25e-4d84-9da6-4fb26a261640",
+  "country": "NZ",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "b84ee12a-09ef-421b-82de-0441a926375b",
+  "country": "GB",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "b437bbe8-8d04-43f7-83a0-8325cc77071a",
+  "country": "GB",
+  "date": "1997"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "03683c48-eb9e-47a8-bcdf-d5e5bae93de3",
+  "country": "US",
+  "date": "1979"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "fc941a7d-eb66-4f5d-aa14-01857f997168",
+  "country": "DE",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "4fef4027-2245-47f9-b102-950f58306d56",
+  "country": "GB",
+  "date": "1977"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "6151d934-4eb2-3b51-8868-c18440b9864d",
+  "country": "US",
+  "date": "1981"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "b02a0c0a-3027-4f26-ba2d-3905f228a0d5",
+  "country": "AU",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "800d1984-783e-4af4-8efa-7c0f8218e1b7",
+  "country": "US",
+  "date": "2023"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "3e5ae0f7-f7e2-493b-b1a8-3cf595c06a1d",
+  "country": "US",
+  "date": "1983"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "96f28a60-32ec-4df2-8c71-b9210220783a",
+  "country": "JP",
+  "date": "1974"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "25f12df1-e0d3-4ce0-a64f-da1cbd1c0cbb",
+  "country": "XW",
+  "date": "2025"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "d48328c9-8dd2-49ee-afd3-77b569f66205",
+  "country": "MZ",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "24824319-9bb8-3d1e-a2c5-b8b864dafd1b",
+  "country": "US",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "fd7d8f8e-c894-4088-a7b4-4a66057f41ee",
+  "country": "JP",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "e541eddf-7c4f-4b7c-a7cd-557f7b19f27a",
+  "country": "XE",
+  "date": "2013"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "8ede3645-4d20-4ca6-a4e3-4e9179115968",
+  "country": "NZ",
+  "date": "1973"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "01aa589c-a7cb-45bd-89a3-c2cb8ddab0a9",
+  "country": "JP",
+  "date": "1978"
+ },
+ {
+  "album": "The_Dark_Side_of_the_Moon",
+  "mbid": "d237fb97-488e-4547-ab41-92dfbc7d5052",
+  "country": "US",
+  "date": "2023"
+ }
+]
