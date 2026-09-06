@@ -223,7 +223,10 @@ Held-out-Set echter Handyfotos; alle Kontrollen sind synthetisch.
 
 - Keine Keypoint-Stufe für v1. Erst das Held-out-Set echter Handyfotos kann
   zeigen, ob das Ranking überhaupt Fehler macht; auf synthetischen Varianten
-  macht es keine.
+  macht es keine. Das Set entsteht seit 2026-09-06 über `vinyl-test/`
+  (unverlinkte Handy-Testseite, Wahrheit pro Foto, Bericht per Teilen) und
+  `scripts/evaluate-vinyl-test-report.mjs --heldout .cache/vinyl-heldout`;
+  echte Fotos liegen noch keine vor.
 - Braucht die UI ein „kein Treffer", ist 0,73 (small q4, 650 synthetische
   Paare) ein Startwert für die CLS-Schwelle, keine Kalibrierung; die
   Folgerung oben bleibt gültig. Der Patch-Nachbar-Zähler ist nur im
@@ -386,7 +389,11 @@ schreiben nur nach `.cache/vinyl-index/` (gitignored).
   adaptiv nachladen, wenn die Marge zum zweiten Treffer klein ist.
 - **Schwellwert:** wird erst mit dem Held-out-Set echter Handyfotos (offenes
   Gate aus `benchmarks/vinyl/RESULTS.md`) festgelegt; bis dahin zeigt die UI
-  Kandidaten nach Rang und wählt nie automatisch.
+  Kandidaten nach Rang und wählt nie automatisch. Weg zum Set: Bericht aus
+  `vinyl-test/` auswerten (`scripts/evaluate-vinyl-test-report.mjs`), die
+  `.summary.md` liefert Recall je Quelle, Zeiten je Stufe und die
+  Fehlschläge nach Situation; `--heldout` legt `photos/` und `index.json` für
+  die Spike-Skripte ab.
 - **Round-trip:** ein frisch gebauter Index muss die 12 Pilot-Cover aus dem
   Browser heraus auf Rang 1 liefern (dasselbe Rezept wie „Product integration
   check" in `RESULTS.md`).

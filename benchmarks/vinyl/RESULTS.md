@@ -76,3 +76,24 @@ neither image bytes nor the query vector to the catalog search. This proves the
 zero-text transfer and product wiring only. The pilot is far too small to claim
 catalog coverage, and the query was the clean reference image rather than a
 held-out phone photo.
+
+## Held-out collection tool — 2026-09-06
+
+The gate above now has a collection path: `vinyl-test/` (commit `1f25677`) is
+an unlisted phone page that runs the production pipeline on a real photo,
+records the tapped tile or a typed artist and title, and exports a JSON report
+with a 640 px copy, the OCR text and the Int8 cover vector per photo.
+`scripts/evaluate-vinyl-test-report.mjs` turns a report into recall per source,
+stage timings and a failed-tag breakdown, and `--heldout` writes the photos plus
+an `index.json` in the spike row layout.
+
+Dry run on a Mac in Chrome with three cached 500 px catalog covers from the
+12-cover pilot, not phone photos: the correct cover sat at index rank 1 for all
+three (one was deliberately recorded as "none of these" to exercise that path,
+so the summary reports 2/3); OCR plus Deezer found the right album for none of
+them, as expected for long-tail releases with sparse or garbled cover text.
+Median stage times: OCR 11.3 s, embedding 3.4 s, index search 32 ms; the one
+image rerank of five candidates took 16.4 s including its second query
+embedding. This proves the report path and the evaluator, nothing about
+real-camera accuracy. The gate stays open until a report with real phone photos
+has been evaluated.
