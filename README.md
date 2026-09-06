@@ -143,6 +143,36 @@ node scripts/build-vinyl-index-assets.mjs \
   --input .cache/vinyl-benchmark/pilot-export.json
 ```
 
+### Vinyl test page (unlisted)
+
+`vinyl-test/index.html` is a German, single-screen page for collecting real
+phone photos of record covers from a friend. It is not linked from the app or
+the sitemap and carries `noindex`; share the URL directly. The page runs the
+same client-side pipeline as the scanner (OCR, Deezer album search, DINOv2
+Small rerank, the local 12-cover index) on each photo and asks which tile was
+right, or for artist and title when none was. Photos never leave the phone;
+as in the app, only the recognised text goes to the Deezer album search and
+only catalog thumbnails are downloaded. Saving is an explicit action into
+IndexedDB, and the report leaves the device only through Share or Download.
+Each saved entry holds a 640 px JPEG copy of the photo, the OCR text, the
+Int8 cover vector in the index encoding (so a later index can be scored
+against the photos without re-embedding them), the person's answers and
+basic device facts (user agent, screen).
+
+Evaluate a received report offline; the summary lands next to the input:
+
+```sh
+node scripts/evaluate-vinyl-test-report.mjs \
+  --input ~/Downloads/musiclinkii-vinyl-test-2026-09-06.json \
+  --heldout .cache/vinyl-heldout
+```
+
+`--heldout` additionally writes `photos/<entryId>.jpg` and an `index.json`
+whose rows use the spike layout (`name`, `original`, plus the truth and the
+recorded vector), so `benchmarks/vinyl/spikes/*/dino/extract.py` reads it
+unchanged; the classical spike scripts also expect synthetic `mild`/`hard`
+variants, which real photos do not have. The directory is ignored by git.
+
 **Cache busting is automatic — nothing to bump by hand.** Every asset
 reference in `index.html` carries the marker `v=dev`, and the pages workflow
 rewrites it to the commit SHA as it deploys. GitHub Pages serves everything

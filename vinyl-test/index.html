@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>musiclinkii · Vinyl-Test</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    body { max-width: 34rem; padding: 1.25rem 1rem 4rem; }
+    header { margin-bottom: 1rem; text-align: left; }
+    h1 { font-size: 2rem; }
+    .intro { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.95rem; }
+    .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+    .big-actions { display: grid; gap: 0.6rem; margin-top: 1rem; }
+    .big-actions .btn,
+    .truth-form .btn,
+    .export-actions .btn,
+    #truth-none { width: 100%; padding: 0.9rem 1rem; font-size: 1.05rem; white-space: normal; }
+    .model-storage { flex-wrap: wrap; font-size: 0.85rem; }
+    .model-storage .btn { flex: 1 0 100%; padding: 0.75rem; font-size: 0.95rem; white-space: normal; }
+    .group-label { margin: 0.9rem 0 0.2rem; font-weight: 600; }
+    .scan-candidate[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+    .truth-form { display: grid; gap: 0.75rem; margin-top: 1.2rem; padding: 0.9rem; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--surface); }
+    .truth-form label { display: grid; gap: 0.25rem; font-size: 0.85rem; color: var(--muted); }
+    .truth-form input,
+    .truth-form textarea { width: 100%; padding: 0.65rem 0.7rem; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 0.55rem; }
+    .truth-form input:focus,
+    .truth-form textarea:focus { border-color: var(--accent); outline: none; }
+    #truth-none[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+    .tag-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .tag-chip { padding: 0.5rem 0.8rem; font: inherit; font-size: 0.9rem; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; }
+    .tag-chip[aria-pressed="true"] { color: #fff; background: var(--accent); border-color: var(--accent); }
+    .entries { margin-top: 1.6rem; }
+    .entry-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+    .entries ol { margin: 0.4rem 0 0; padding-left: 1.2rem; font-size: 0.9rem; }
+    .entries li { margin: 0.25rem 0; }
+    .export { margin-top: 1.6rem; padding: 0.9rem; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--surface); }
+    .export p { margin: 0 0 0.4rem; font-size: 0.9rem; }
+    .export-actions { display: grid; gap: 0.6rem; margin-top: 0.8rem; }
+    .danger { color: #c0392b; }
+    .btn.armed { color: #c0392b; border-color: #c0392b; }
+    .line { margin-left: 0; margin-right: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Vinyl-Test</h1>
+    <p class="intro">Fotografiere Plattencover so, wie du es normal machen würdest. Die Seite liest den Text auf dem Foto, sucht damit Alben im Katalog und vergleicht das Cover. Das Foto selbst bleibt auf diesem Gerät, nur der erkannte Text geht an die Albumsuche. Tippe danach auf den richtigen Treffer oder auf „Keins davon“ und speichere. Am Ende schickst du mir den Bericht. Fotos und Bericht bleiben auf deinem Handy, bis du selbst auf Teilen tippst; der Bericht enthält verkleinerte Kopien der Fotos.</p>
+  </header>
+
+  <main>
+    <div id="model-box" class="model-storage" data-stored="false">
+      <span id="model-state">Modellstatus wird geprüft …</span>
+      <button id="load-model" class="btn btn-go" type="button" hidden>Modell laden (15 MB, einmalig, besser im WLAN)</button>
+    </div>
+    <p id="warn" class="line" role="status" hidden></p>
+
+    <div class="big-actions">
+      <input id="camera-input" class="visually-hidden" type="file" accept="image/*" capture="environment" tabindex="-1">
+      <input id="file-input" class="visually-hidden" type="file" accept="image/*" tabindex="-1">
+      <button id="open-camera" class="btn btn-go" type="button">Cover fotografieren</button>
+      <button id="open-file" class="btn" type="button">Foto aus der Galerie wählen</button>
+    </div>
+    <p id="status" class="line" role="status" aria-live="polite" hidden></p>
+    <img id="preview" class="scan-preview" alt="" hidden>
+
+    <div id="candidates" class="scan-candidates"></div>
+
+    <form id="truth-form" class="truth-form" hidden>
+      <button id="truth-none" class="btn" type="button" aria-pressed="false">Keins davon</button>
+      <div id="none-fields" hidden>
+        <label>Künstler:in<input id="truth-artist" type="text" autocomplete="off" autocapitalize="words"></label>
+        <label>Albumtitel<input id="truth-title" type="text" autocomplete="off" autocapitalize="words"></label>
+      </div>
+      <label>Katalognummer (optional)<input id="truth-catno" type="text" autocomplete="off" autocapitalize="characters"></label>
+      <div>
+        <span class="scan-privacy">Situation (mehrere möglich)</span>
+        <div id="truth-tags" class="tag-chips"></div>
+      </div>
+      <label>Notiz (optional)<textarea id="truth-note" rows="2"></textarea></label>
+      <button id="save-entry" class="btn btn-go" type="submit" disabled>Speichern &amp; nächstes Foto</button>
+      <button id="discard-entry" class="btn" type="button">Foto verwerfen</button>
+    </form>
+
+    <section class="entries">
+      <div class="entry-row">
+        <strong id="entry-count">0 Fotos gespeichert</strong>
+        <button id="delete-last" class="btn" type="button" hidden>Letzten Eintrag löschen</button>
+      </div>
+      <ol id="entry-list" reversed></ol>
+    </section>
+
+    <section class="export">
+      <p>Der Bericht enthält verkleinerte Fotos (640 px), den erkannten Text, den lokal berechneten Bildvektor, deine Angaben und Notizen sowie technische Daten des Handys (Browser, Bildschirm). Er liegt nur auf diesem Gerät, bis du ihn selbst teilst.</p>
+      <p id="export-size" class="scan-privacy">Noch kein Eintrag gespeichert.</p>
+      <div class="export-actions">
+        <button id="share-report" class="btn btn-go" type="button" disabled>Bericht teilen</button>
+        <button id="download-report" class="btn" type="button" disabled>Bericht herunterladen</button>
+        <button id="clear-report" class="btn danger" type="button" disabled>Bericht löschen</button>
+      </div>
+      <p id="export-line" class="line" role="status" hidden></p>
+    </section>
+  </main>
+
+  <script type="module" src="page.mjs"></script>
+</body>
+</html>
