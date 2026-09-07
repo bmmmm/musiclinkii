@@ -159,6 +159,13 @@ Int8 cover vector in the index encoding (so a later index can be scored
 against the photos without re-embedding them), the person's answers and
 basic device facts (user agent, screen).
 
+Sharing and downloading hand out the same JSON under different names. The
+download keeps `…-YYYY-MM-DD.json`; the share sends `….json.txt` as
+`text/plain`, because Chromium's share allowlist rejects both the `.json`
+extension and `application/json` — on Android with a `NotAllowedError` that
+`canShare()` does not predict. The evaluator parses the body, so either file
+works as `--input`.
+
 Evaluate a received report offline; the summary lands next to the input:
 
 ```sh

@@ -44,6 +44,12 @@ node scripts/evaluate-vinyl-test-report.mjs --input <report.json> [--heldout .ca
   `vinyl-test/` and README honest about what goes to Deezer.
 - MusicBrainz throttling looks exactly like a regression (fewer exact
   matches). Look for 503s in the network log before debugging a diff.
+- A file share carries the file and nothing else, and it carries it as
+  `.txt`/`text/plain`: `share({ files, title })` lets a messenger send the
+  title as a message and drop the report, `application/json` is rejected by
+  Chromium's allowlist that `canShare()` does not consult, and `share()`
+  resolves either way. `tests/share-payload.test.mjs` gates all three; never
+  word a share handler as if delivery were confirmed.
 - Cover images under `.cache/` are third-party and never committed; the repo
   ships only vectors and identifiers.
 - Deploy is `git push` to `main` on both remotes (`origin` Forgejo, `github`);

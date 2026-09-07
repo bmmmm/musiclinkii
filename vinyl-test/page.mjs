@@ -79,7 +79,7 @@ const state = {
   chosenIndex: null,
   none: false,
   tags: new Set(),
-  pendingExport: null,  // { file, name } built eagerly for the share gesture
+  pendingExport: null,  // { file, name, shareName }; the share copy is retyped inside the tap
   previewUrl: null,
   counter: 0,
 };
@@ -642,8 +642,19 @@ function rebuildExport() {
   });
   const name = reportFilename();
   const file = new File([JSON.stringify(report)], name, { type: 'application/json' });
-  state.pendingExport = { file, name };
-  el.exportSize.textContent = `${name} · ≈ ${(file.size / MEGABYTE).toFixed(1).replace('.', ',')} MB`;
+  // The download keeps the .json name; the share cannot. Chromium's share
+  // allowlist (ShareServiceImpl.java) checks extension and MIME type
+  // independently and holds neither "json" nor "application/json", so on
+  // Android share() rejects with NotAllowedError — and that check runs in the
+  // browser process, after canShare() has already said yes. text/plain with a
+  // .txt extension is the one form both Android and iOS carry; the evaluator
+  // parses the body, never the name. Only the name is kept here — the retyped
+  // copy is built inside the tap, so a report full of photos is not held twice.
+  const shareName = `${name}.txt`;
+  state.pendingExport = { file, name, shareName };
+  // Both names are shown, or the person compares the size line against an
+  // attachment that legitimately ends in .txt and thinks it is the wrong file.
+  el.exportSize.textContent = `${name} · ≈ ${(file.size / MEGABYTE).toFixed(1).replace('.', ',')} MB · beim Teilen heißt sie ${shareName}`;
 }
 
 function downloadReport() {
@@ -666,15 +677,30 @@ el.download.addEventListener('click', () => {
 
 el.share.addEventListener('click', () => {
   if (!state.pendingExport) return;
-  const { file } = state.pendingExport;
+  const { file, shareName } = state.pendingExport;
+  // Re-wrapping the existing blob is synchronous, so it keeps the tap's user
+  // activation — anything awaited here would lose it on iOS.
+  const shareFile = new File([file], shareName, { type: 'text/plain' });
+  // A file share carries the file and nothing else. WebKit adds `title` to the
+  // share sheet as its own item whenever no text/url is set, so the target app
+  // gets two items and a messenger that keeps the string and drops the
+  // attachment sends the title as a message — exactly what happened on
+  // 2026-09-07: only the words "musiclinkii Vinyl-Test" arrived, no report.
   // navigator.share must run synchronously inside the tap; an await before
   // it loses the user activation on iOS.
-  if (navigator.canShare?.({ files: [file] })) {
-    navigator.share({ files: [file], title: 'musiclinkii Vinyl-Test' })
-      .then(() => setLine(el.exportLine, 'Bericht geteilt.', 'info'))
+  if (navigator.canShare?.({ files: [shareFile] })) {
+    navigator.share({ files: [shareFile] })
+      // A resolved share() only means the sheet finished — on Android it
+      // resolves once the data reaches the target, on iOS once the activity
+      // reports completion. Neither says the file was kept, so never claim
+      // success here.
+      .then(() => setLine(el.exportLine, `Share-Sheet geschlossen. Prüfe in der Ziel-App, ob die Datei ${shareName} wirklich angehängt ist — kam nur Text an, nimm „Bericht herunterladen“.`, 'warn'))
       .catch((error) => {
         if (error?.name === 'AbortError') return;
-        setLine(el.exportLine, `Teilen fehlgeschlagen (${error?.message || error}). Nutze den Download.`, 'warn');
+        // NotAllowedError covers the type allowlist as well as the file-count
+        // and 50 MB caps, so keep the message: the name alone cannot tell them
+        // apart in the field.
+        setLine(el.exportLine, `Teilen fehlgeschlagen (${[error?.name, error?.message].filter(Boolean).join(': ') || error}). Nimm „Bericht herunterladen“ und verschicke die Datei aus dem Download-Ordner.`, 'warn');
       });
     return;
   }
