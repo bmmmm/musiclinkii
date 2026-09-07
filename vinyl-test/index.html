@@ -97,7 +97,9 @@
       <p class="line" data-tone="warn">Achtung beim Teilen: Manche Apps schicken nur einen Text und lassen die Datei weg. Schau in der Ziel-App nach, ob der Dateiname wirklich als Anhang dransteht — sonst nimm „Bericht herunterladen“ und verschicke die Datei aus dem Download-Ordner.</p>
       <div class="export-actions">
         <button id="share-report" class="btn btn-go" type="button" disabled>Bericht teilen</button>
-        <button id="download-report" class="btn" type="button" disabled>Bericht herunterladen</button>
+        <!-- Both weighted the same: sharing is the convenient route, the
+             download the only one whose result is observable. -->
+        <button id="download-report" class="btn btn-go" type="button" disabled>Bericht herunterladen</button>
         <button id="clear-report" class="btn danger" type="button" disabled>Bericht löschen</button>
       </div>
       <p id="export-line" class="line" role="status" hidden></p>

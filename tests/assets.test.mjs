@@ -74,3 +74,106 @@ test('the scanner offers every DINOv2 size with download, storage state and dele
   assert.match(html, /id="delete-visual-model"[\s\S]*Delete local model/);
   assert.match(app, /Search the local 12-cover pilot \(uses Small\)/);
 });
+
+// A .btn variant and .btn itself have the same specificity, so the later rule
+// wins. .btn-go once sat above .btn and its gradient was silently overridden by
+// .btn's background — every primary action rendered as a secondary one, and
+// nothing but a screenshot could show it. The rule is therefore: a variant must
+// follow EVERY .btn rule, not merely the first one found. Anchoring on the
+// first would let a harmless decoy `.btn {}` earlier in the file re-open the
+// exact hole this guards.
+test('every .btn variant is declared after every .btn rule', () => {
+  const css = readFileSync(new URL('css/style.css', root), 'utf8');
+  // Comments out of the way first, then every selector list with its offset.
+  // Offsets are only ever compared with each other, so the shift is harmless.
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...clean.matchAll(/([^{}]+)\{/g)]
+    .map((m) => ({ index: m.index, parts: m[1].split(',').map((part) => part.trim()).filter(Boolean) }));
+
+  const bases = rules.filter((rule) => rule.parts.includes('.btn'));
+  const variants = rules.flatMap((rule) => rule.parts
+    .filter((part) => /^\.btn-[\w-]+$/.test(part))
+    .map((part) => ({ index: rule.index, name: part })));
+
+  assert.ok(bases.length > 0, 'no rule whose selector list contains exactly ".btn" — the base rule was renamed or reshaped, not deleted');
+  assert.ok(variants.length >= 4, `expected the known .btn- variants, found ${variants.length}`);
+
+  const lastBase = Math.max(...bases.map((base) => base.index));
+  for (const variant of variants) {
+    assert.ok(variant.index > lastBase,
+      `${variant.name} is declared before a .btn rule — same specificity, so .btn wins and this variant renders as a plain button`);
+  }
+});
+
+// --- Contrast on the accent gradient.
+//
+// White on that gradient measures 2.14-4.51:1 across the two palettes and
+// misses AA everywhere. Checking that the rules *mention* --accent-ink would
+// only test spelling: the token could be redefined to #fff and every button
+// would still read as compliant. So compute the real thing — resolve each
+// gradient surface's text colour and measure it against every stop of the
+// gradient, in both palettes. What is asserted is legibility, not wording.
+const srgb = (channel) => (channel /= 255, channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+const luminance = ([r, g, b]) => 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b);
+const contrast = (a, b) => {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (light + 0.05) / (dark + 0.05);
+};
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+
+// The two palettes: bare :root, then whatever the dark block overrides.
+function palettes(css) {
+  const tokens = (block) => Object.fromEntries([...block.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
+  const light = tokens(css.slice(css.indexOf(':root {'), css.indexOf('}', css.indexOf(':root {'))));
+  const darkBlock = css.slice(css.indexOf('prefers-color-scheme: dark'));
+  return { light, dark: { ...light, ...tokens(darkBlock.slice(0, darkBlock.indexOf('\n  }'))) } };
+}
+
+const resolve = (value, palette) => {
+  const token = value.match(/var\((--[\w-]+)\)/);
+  const hex = (token ? palette[token[1]] : value.trim());
+  return /^#[0-9a-f]{6}$/i.test(hex || '') ? rgbOf(hex) : null;
+};
+
+test('every text colour on the accent gradient clears AA in both palettes', () => {
+  const css = readFileSync(new URL('css/style.css', root), 'utf8');
+  const themes = palettes(css);
+  assert.ok(themes.light['--accent'] && themes.dark['--accent'], 'both palettes must define the accent colours');
+
+  // The stylesheet plus every inline <style> block: a page-local rule paints
+  // the same buttons and would otherwise never be looked at.
+  const inline = ['index.html', 'vinyl-test/index.html']
+    .flatMap((page) => [...readFileSync(new URL(page, root), 'utf8').matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]));
+  const allCss = [css, ...inline].join('\n');
+
+  // Any rule whose background is an accent gradient, however it is written.
+  const surfaces = [...allCss.matchAll(/\{[^{}]*\}/g)]
+    .map(([block]) => block)
+    .filter((block) => /linear-gradient\([^)]*--accent/.test(block));
+  assert.ok(surfaces.length >= 4, `expected the accent-gradient surfaces, found ${surfaces.length}`);
+
+  let checked = 0;
+  for (const block of surfaces) {
+    const stopNames = [...block.matchAll(/var\((--accent(?:-2)?)\)/g)].map((m) => m[1]);
+    // Every declaration that can paint glyphs; the last one wins, as in CSS.
+    const inks = [...block.matchAll(/(?:^|[;{])\s*(?:-webkit-text-fill-color|color)\s*:\s*([^;}]+)/g)].map((m) => m[1].trim());
+    const ink = inks.at(-1);
+    if (!ink || ink === 'transparent') continue; // the logo clips the gradient into the glyphs
+    for (const [name, palette] of Object.entries(themes)) {
+      const text = resolve(ink, palette);
+      assert.ok(text, `cannot resolve text colour "${ink}" — an unresolvable colour cannot be proven legible`);
+      const stops = stopNames.map((token) => resolve(`var(${token})`, palette));
+      for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+        for (let i = 0; i + 1 < stops.length; i += 1) {
+          const ratio = contrast(text, mix(stops[i], stops[i + 1], t));
+          assert.ok(ratio >= 4.5,
+            `${name} palette: "${ink}" on the accent gradient measures ${ratio.toFixed(2)}:1 at stop ${t} — AA needs 4.5. ` +
+            'Use var(--accent-ink), and if that is what this already is, the token itself has drifted too light.');
+          checked += 1;
+        }
+      }
+    }
+  }
+  assert.ok(checked >= 40, `only ${checked} contrast pairs measured — the surfaces stopped being found`);
+});

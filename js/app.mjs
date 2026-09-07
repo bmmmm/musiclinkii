@@ -6,7 +6,7 @@
 
 import { parseInput } from './parsers.mjs';
 import {
-  PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor,
+  PLATFORMS, regionFromLocale, sourceCardKeys, shareHashFor,
   linkFromHash, vinylScanRequested, vinylScanSearch,
 } from './links.mjs';
 import {
@@ -476,14 +476,38 @@ el.copyMeta.addEventListener('click', () => {
   if (text) copyText(text, el.copyMeta);
 });
 
+// The permalink only mirrors a *committed* query, but typing in the fields
+// already re-renders the cards (see the input listener) — so location.href can
+// lag one edit behind what is on screen. Share what the person sees: derive the
+// hash from the current fields, the same way writeHash does, without touching
+// the address bar. A link session keeps its own hash, exactly as writeHash
+// leaves it alone.
+function shareTarget() {
+  const fields = state.parsed ? null : fieldsQuery();
+  if (!fields) return { url: location.href, name: '' };
+  const name = queryText(fields);
+  return {
+    url: `${location.origin}${location.pathname}${location.search}${shareHashFor(name, fields.kind)}`,
+    name,
+  };
+}
+
 el.share.addEventListener('click', async () => {
-  const url = location.href;
-  const text = buildQuery(el.artist.value, el.title.value);
+  const { url, name } = shareTarget();
   if (navigator.share) {
     try {
-      await navigator.share({ title: 'musiclinkii', text, url });
+      // One item, never two. A payload with both `text` and `url` puts two
+      // things in the share sheet and lets the target app pick; on iOS an app
+      // that keeps the string sends a bare "Artist - Title" and no link. (On
+      // Android the two are merged into one EXTRA_TEXT, so nothing is lost
+      // there either way.) The name rides along as the URL's own title.
+      await navigator.share({ title: name ? `musiclinkii · ${name}` : 'musiclinkii', url });
       return;
-    } catch { /* user cancelled or unsupported payload — fall back to copy */ }
+    } catch (error) {
+      // A cancelled sheet is not a failure — do not fall through and claim
+      // "Copied!" for something the person deliberately dismissed.
+      if (error?.name === 'AbortError') return;
+    }
   }
   copyText(url, el.share);
 });

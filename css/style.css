@@ -8,6 +8,13 @@
   --border: #e2e5ec;
   --accent: #6d5efc;
   --accent-2: #38bdf8;
+  /* Ink for text sitting ON the accent gradient. Deliberately not --text and
+     not --bg: both flip with the colour scheme, and the gradient does not, so
+     either one fails AA in one of the two themes. This value is the lightest
+     neutral that clears 4.5:1 against every point of the gradient in BOTH
+     palettes (worst case 4.52 at the violet end of the light theme); white
+     manages only 2.14-4.51. It stays out of the dark-theme block on purpose. */
+  --accent-ink: #03050a;
   --badge-source-bg: #e8e6ff;
   --badge-source-fg: #4c3fd6;
   --badge-match-bg: #dcf5e7;
@@ -98,8 +105,10 @@ h1 {
 
 .search-mode-btn:hover { color: var(--text); }
 
+/* Every surface painted with the accent gradient takes --accent-ink, never
+   #fff — see the token for the measured reason. */
 .search-mode-btn[aria-pressed='true'] {
-  color: #fff;
+  color: var(--accent-ink);
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
 
@@ -143,7 +152,7 @@ h1 {
 }
 
 .input-btn:hover {
-  color: #fff;
+  color: var(--accent-ink);
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
 
@@ -584,15 +593,6 @@ h1 {
   border-color: var(--accent);
 }
 
-.btn-go {
-  gap: 0.35rem;
-  color: #fff;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  border-color: transparent;
-}
-
-.btn-go:hover { filter: brightness(1.08); }
-
 /* Narrow screens: the action column moves below the fields as a row. */
 @media (max-width: 34rem) {
   .scan-source-actions .btn { flex: 1; }
@@ -767,10 +767,23 @@ h1 {
 
 .btn:hover { border-color: var(--accent); }
 
+/* Every .btn variant has to sit after .btn itself: same specificity, so the
+   later rule wins. This one used to live further up and was silently
+   overridden by .btn's background, which left every primary action looking
+   exactly like a secondary one. */
+.btn-go {
+  gap: 0.35rem;
+  color: var(--accent-ink);
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+}
+
+.btn-go:hover { filter: brightness(1.08); }
+
 /* Transparent border, not none — a missing border would make this button
    2px shorter than its neighbours. */
 .btn-open {
-  color: #fff;
+  color: var(--accent-ink);
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
   border-color: transparent;
 }
