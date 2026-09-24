@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
       - run: node --test 'tests/*.test.mjs'
@@ -34,7 +34,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # index.html ships asset references marked v=dev; stamp them with the
       # commit SHA so HTML, CSS and the module chain always come from one
       # deploy. Counted before and after: a silently non-matching sed would
@@ -46,8 +46,8 @@ jobs:
           sed -i "s/?v=dev/?v=${GITHUB_SHA:0:12}/g" index.html
           test "$(grep -c '?v=dev' index.html || true)" -eq 0 || { echo "stamping left placeholders behind"; exit 1; }
           echo "stamped $before refs with ${GITHUB_SHA:0:12}"
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: .
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
