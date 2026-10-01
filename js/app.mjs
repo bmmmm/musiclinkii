@@ -1,0 +1,1323 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// UI orchestration around ONE commit path: pasted links and structured
+// artist/song or artist/album searches land in commitSearch(), which owns the generation,
+// the result reset, the surface sync, the share hash and the lookup
+// pipeline. Typing never triggers lookups; "Next search" is the only reset.
+
+import { parseInput } from './parsers.mjs';
+import {
+  PLATFORMS, regionFromLocale, sourceCardKeys, shareHashFor,
+  linkFromHash, vinylScanRequested, vinylScanSearch,
+} from './links.mjs';
+import {
+  fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist,
+  namesakeChipLabel, setMbRetryListener, findOcrAlbumCandidates,
+} from './adapters.mjs';
+import { enrichByCode, mergeExactLinks } from './enrich.mjs';
+import { cardModels, cardSignature } from './cards.mjs';
+import { iconSvg } from './icons.mjs';
+import {
+  buildOcrQueries, fetchImage, pastedImage, rankOcrAlbumCandidates,
+  recognizeVinylText,
+} from './vinyl-scan.mjs';
+import {
+  canRerankVisually, clearVisualModel, embedVinylCover, rerankVinylCandidates,
+  DEFAULT_VISUAL_MODEL, migrateLegacyVisualModel, prepareVisualModel,
+  visualModelStored, VISUAL_MODELS,
+} from './visual-match.mjs';
+import { searchVinylCatalog } from './vinyl-index.mjs';
+
+const $ = (sel) => document.querySelector(sel);
+
+const el = {
+  input: $('#link-input'),
+  status: $('#status'),
+  note: $('#note'),
+  suggest: $('#suggest'),
+  track: $('#track'),
+  thumb: $('#thumb'),
+  artist: $('#artist-input'),
+  topsongs: $('#topsongs'),
+  title: $('#title-input'),
+  results: $('#results'),
+  cards: $('#cards'),
+  copyAll: $('#copy-all'),
+  copyMeta: $('#copy-meta'),
+  share: $('#share'),
+  nextLink: $('#next-link'),
+  go: $('#go'),
+  searchModeToggle: $('#search-mode-toggle'),
+  urlSearch: $('#url-search'),
+  vinylScan: $('#vinyl-scan'),
+  closeVinylScan: $('#close-vinyl-scan'),
+  scanCamera: $('#scan-camera'),
+  scanFile: $('#scan-file'),
+  scanPaste: $('#scan-paste'),
+  scanUrlForm: $('#scan-url-form'),
+  scanUrl: $('#scan-url'),
+  scanPreview: $('#scan-preview'),
+  scanStatus: $('#scan-status'),
+  visualModelState: $('#visual-model-state'),
+  visualModelSelect: $('#visual-model-select'),
+  visualModelDetails: $('#visual-model-details'),
+  visualModelUrl: $('#visual-model-url'),
+  downloadVisualModel: $('#download-visual-model'),
+  deleteVisualModel: $('#delete-visual-model'),
+  scanTextWrap: $('#scan-text-wrap'),
+  scanText: $('#scan-text'),
+  scanFind: $('#scan-find'),
+  scanCandidates: $('#scan-candidates'),
+  formSearch: $('#form-search'),
+  kindToggle: $('#kind-toggle'),
+  titleLabel: $('#title-label'),
+  searchFormat: $('#search-format'),
+};
+
+const region = regionFromLocale(navigator.language);
+
+const KINDS = ['track', 'album', 'artist'];
+
+const state = {
+  parsed: null,
+  exact: {},        // platformKey → exact URL
+  sourceKeys: [],   // platform keys covered by the pasted link itself
+  sourceTracks: [], // the source artist's top titles — identity probe for catalog picks
+  isrc: '',         // from Deezer — unlocks the MusicBrainz link lookup
+  isrcChecked: '',  // last ISRC already sent to MusicBrainz (1 req/s budget)
+  isrcFrom: '',     // Deezer track id whose ISRC fetch already started
+  upc: '',          // from Deezer album — unlocks the MusicBrainz barcode lookup
+  upcChecked: '',   // last UPC already sent to MusicBrainz
+  upcFrom: '',      // Deezer album id whose UPC fetch already started
+  artistChips: null, // { title, names, itunesDown } — chips survive rounds
+  namesakeChips: null, // { artist, candidates, mode } — same-named artist choices
+  kind: 'track',    // structured search kind, picked via the song/album toggle
+  inputMode: 'url', // URL, structured text search, or the local vinyl scanner
+  pending: new Set(), // platform keys whose exact-link stage has not settled
+  generation: 0,    // invalidates in-flight fetches when input changes
+};
+
+// The entity kind of the current session — a parsed link dictates it,
+// free text and the form follow the kind toggle.
+const currentKind = () => state.parsed?.kind || state.kind;
+
+// The title field doubles as the album field — its label follows the
+// session kind, and artist searches need no title at all.
+function syncKindUi() {
+  const kind = currentKind();
+  const artistOnly = kind === 'artist';
+  el.titleLabel.hidden = artistOnly;
+  el.title.hidden = artistOnly;
+  const label = kind === 'album' ? 'Album' : 'Song';
+  el.titleLabel.textContent = label;
+  el.title.placeholder = label;
+  el.searchFormat.textContent = artistOnly ? 'Format: Artist' : `Format: Artist — ${label}`;
+}
+
+function syncKindToggle() {
+  for (const b of el.kindToggle.querySelectorAll('.kind-btn')) {
+    b.setAttribute('aria-pressed', String(b.dataset.kind === state.kind));
+  }
+}
+
+function syncInputModeUi() {
+  for (const button of el.searchModeToggle.querySelectorAll('.search-mode-btn')) {
+    button.setAttribute('aria-pressed', String(button.dataset.mode === state.inputMode));
+  }
+  el.urlSearch.hidden = state.inputMode !== 'url';
+  // A parsed URL keeps its editable metadata visible, even though URL remains
+  // the active input mode.
+  el.track.hidden = state.inputMode !== 'search' && !state.parsed;
+  el.vinylScan.hidden = state.inputMode !== 'vinyl';
+}
+
+function setInputMode(mode, { focus = true, updateUrl = true } = {}) {
+  const leavingVinyl = state.inputMode === 'vinyl' && mode !== 'vinyl';
+  state.inputMode = mode;
+  if (leavingVinyl) {
+    // A hidden scanner must not finish later and replace the newer search.
+    scanGeneration += 1;
+    setScanBusy(false);
+  }
+  syncInputModeUi();
+  if (updateUrl) writeVinylScanUrl(mode === 'vinyl');
+  if (!focus) return;
+  if (mode === 'url') el.input.focus();
+  else if (mode === 'search') el.artist.focus();
+  else el.scanUrl.focus();
+}
+
+// --- Status lines: one owner each, no cross-guards. #status carries the
+// pipeline phase and outcome, #note source caveats, #suggest the chips.
+function setLine(node, text, tone = 'info') {
+  node.textContent = text || '';
+  node.dataset.tone = tone;
+  node.hidden = !text;
+  delete node.dataset.busy;
+}
+
+function setStatus(text, tone = 'info') {
+  setLine(el.status, text, tone);
+}
+
+function setNote(text) {
+  setLine(el.note, text, 'warn');
+}
+
+// MusicBrainz 503s even inside its own 1 req/s budget, and it is the only
+// keyless route to exact Spotify/TIDAL/Qobuz links — so a throttled round
+// shows up as "1 exact match" where the last one found four, with nothing
+// on screen to explain it (that cost half an hour of debugging on
+// 2026-08-21). Same shape as the iTunes rate-limit hint on the chips line.
+// A standing note is never overwritten: a source caveat is more specific
+// than this one, and a re-commit re-runs the lookup anyway.
+// No time estimate on purpose: measured 2026-08-22, MusicBrainz reports a
+// one-second window, sends no Retry-After, and its remaining quota moves
+// with every other anonymous client — "try again in a minute" was a guess,
+// and often a pessimistic one (a retry seconds later routinely lands). A
+// button beats a number nobody can compute: the user decides when.
+function noteMbThrottled() {
+  if (el.note.textContent) return;
+  setNote('MusicBrainz is rate-limiting — some exact links may be missing.');
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'note-action';
+  retry.textContent = 'Try again';
+  // A fields commit re-runs the lookup with the artist/title on screen; a
+  // 503 is never cached, so this really does ask MusicBrainz again.
+  retry.addEventListener('click', commitFromFields);
+  el.note.appendChild(retry);
+}
+
+// Progress line for a lookup phase, with animated dots. Always writes —
+// warnings and chips live on their own lines. `busy` selects the marker:
+// '1' is the plain phase, 'retry' adds the turning hourglass.
+function setPhase(text, busy = '1') {
+  setStatus(text);
+  el.status.dataset.busy = busy;
+}
+
+// The hourglass turns only while a MusicBrainz retry is really in flight —
+// it is a report, not a placeholder. The phase it interrupts is restored
+// afterwards, so a retry in the middle of "Checking MusicBrainz for exact
+// links" does not swallow that line.
+let phaseBeforeRetry = null;
+setMbRetryListener((active) => {
+  if (active) {
+    phaseBeforeRetry = el.status.textContent;
+    setPhase('MusicBrainz is rate-limiting — trying again', 'retry');
+  } else {
+    if (phaseBeforeRetry) setPhase(phaseBeforeRetry);
+    else clearPhase();
+    phaseBeforeRetry = null;
+  }
+});
+
+// Phase lines are transient: if one is still standing when the pipeline
+// ends (error, early return), drop it — outcomes write their own line.
+function clearPhase() {
+  if (el.status.dataset.busy) setStatus('');
+}
+
+// Title-only lookups on an ambiguous title ("Cooked") can't know which
+// artist the pasted item belongs to — offer catalog candidates as
+// one-click chips on their own line. state.artistChips is keyed by the
+// title so a later round WITHOUT candidates can't wipe fresh chips, and a
+// title edit invalidates them implicitly. A chip click is a normal form
+// commit, so the full match cascade follows.
+function showArtistChips() {
+  const chips = state.artistChips;
+  const current = el.artist.value.trim();
+  const names = chips && chips.title === el.title.value.trim()
+    ? chips.names.filter((n) => n !== current)
+    : [];
+  el.suggest.replaceChildren();
+  el.suggest.hidden = !names.length;
+  if (!names.length) return;
+  const prefix = current
+    ? 'Not right? '
+    : (chips.itunesDown ? 'Apple Music is rate-limiting — pick the artist: ' : 'Which artist? ');
+  el.suggest.append(prefix);
+  names.forEach((name, i) => {
+    if (i) el.suggest.append(' ');
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = name;
+    chip.addEventListener('click', () => {
+      el.artist.value = name;
+      commitFromFields();
+    });
+    el.suggest.appendChild(chip);
+  });
+}
+
+// Namesake chips: unlike showArtistChips, every candidate carries the
+// SAME name — the label disambiguates via each act's top track, and a
+// click must pin an IDENTITY, so the whole candidate object travels
+// through commitSearch as q.pick instead of re-committing a name.
+function showNamesakeChips() {
+  const chips = state.namesakeChips;
+  const list = chips && chips.artist === el.artist.value.trim()
+    ? chips.candidates.filter((c) => c.link !== state.exact.deezer)
+    : [];
+  el.suggest.replaceChildren();
+  el.suggest.hidden = !list.length;
+  if (!list.length) return;
+  el.suggest.append(chips.mode === 'auto' ? 'Not right? ' : 'Which one? ');
+  list.forEach((c, i) => {
+    if (i) el.suggest.append(' ');
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = namesakeChipLabel(c);
+    chip.addEventListener('click', () => commitFromPick(c));
+    el.suggest.appendChild(chip);
+  });
+}
+
+// Outcome line after a lookup round. Chips render on their own line, so
+// outcome and suggestion coexist.
+function updateOutcome(kind) {
+  if (kind === 'artist') showNamesakeChips();
+  else showArtistChips();
+  if (!el.artist.value.trim() && el.title.value.trim()
+      && kind !== 'artist' && kind !== 'playlist') {
+    setStatus('Artist unknown — add it above for better matches.');
+    return;
+  }
+  const matches = Object.keys(state.exact).filter((k) => !state.sourceKeys.includes(k)).length;
+  if (matches) {
+    setStatus(`${matches} exact ${matches === 1 ? 'match' : 'matches'} found — the other cards open searches.`);
+  } else if ((el.title.value.trim() || kind === 'artist') && kind !== 'playlist') {
+    setStatus('No exact matches — every card opens a search.');
+  }
+}
+
+// All values land in the DOM via createElement/textContent/properties —
+// never via innerHTML — so API-supplied URLs and titles cannot inject
+// markup. The only insertAdjacentHTML is our own static icon SVG.
+function buildCard(m) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.dataset.platform = m.key;
+  card.dataset.sig = cardSignature(m);
+  if (m.pending) card.dataset.pending = '1';
+
+  const row = document.createElement('div');
+  row.className = 'card-row';
+  row.insertAdjacentHTML('beforeend', iconSvg(m.key));
+
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  const name = document.createElement('span');
+  name.className = 'card-name';
+  name.textContent = m.name;
+  const badge = document.createElement('span');
+  badge.className = `badge badge-${m.badge}`;
+  badge.textContent = m.badge;
+  if (m.viaCode) {
+    badge.title = m.codeKind === 'upc'
+      ? 'Search by barcode (UPC) — usually lands on exactly the right album'
+      : 'Search by ISRC — usually lands on exactly the right track';
+  }
+  body.append(name, badge);
+  row.appendChild(body);
+
+  // Buttons live in their own row, never inline with the name: a card with
+  // an app link has four of them, and mixed into the title row they wrapped
+  // one by one — leaving "Preview" stranded above the rest and making cards
+  // with an app link half again as tall as those without.
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+
+  if (m.embed) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-preview';
+    btn.type = 'button';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.dataset.src = m.embed.src;
+    btn.dataset.height = m.embed.height || '';
+    btn.dataset.aspect = m.embed.aspect || '';
+    btn.title = `Load the ${m.name} preview player (third-party content)`;
+    btn.textContent = 'Preview';
+    actions.appendChild(btn);
+  }
+  if (m.app) {
+    const app = document.createElement('a');
+    app.className = 'btn btn-app';
+    app.href = m.app.href;
+    app.title = m.app.title;
+    app.textContent = 'App';
+    actions.appendChild(app);
+  }
+
+  const open = document.createElement('a');
+  open.className = 'btn btn-open';
+  open.href = m.url;
+  open.target = '_blank';
+  open.rel = 'noopener noreferrer';
+  open.textContent = 'Open';
+  actions.appendChild(open);
+
+  const copy = document.createElement('button');
+  copy.className = 'btn btn-copy';
+  copy.type = 'button';
+  copy.dataset.url = m.url;
+  copy.setAttribute('aria-label', `Copy ${m.name} link`);
+  copy.textContent = 'Copy';
+  actions.appendChild(copy);
+
+  const slot = document.createElement('div');
+  slot.className = 'embed-slot';
+  slot.hidden = true;
+  card.append(row, actions, slot);
+  return card;
+}
+
+// Differential render: a card whose signature is unchanged keeps its DOM,
+// so an open preview iframe survives typing in the artist/title fields.
+function syncCards(models) {
+  const wanted = new Set(models.map((m) => m.key));
+  for (const child of [...el.cards.children]) {
+    if (!wanted.has(child.dataset.platform)) child.remove();
+  }
+  let anchor = null; // last correctly placed card
+  for (const m of models) {
+    let card = [...el.cards.children].find((c) => c.dataset.platform === m.key);
+    if (!card || card.dataset.sig !== cardSignature(m)) {
+      const fresh = buildCard(m);
+      if (card) card.replaceWith(fresh);
+      card = fresh;
+    }
+    const ref = anchor ? anchor.nextElementSibling : el.cards.firstElementChild;
+    if (card !== ref) el.cards.insertBefore(card, ref);
+    anchor = card;
+  }
+}
+
+// Top-track context under the artist field — display only, artist
+// sessions only. Typed artist searches never fetch sourceTracks, so the
+// line appears exactly when a pasted link vouches for the titles.
+function syncTopSongs() {
+  const show = currentKind() === 'artist' && state.sourceTracks.length > 0;
+  el.topsongs.hidden = !show;
+  el.topsongs.textContent = show ? `Top: ${state.sourceTracks.slice(0, 3).join(' · ')}` : '';
+}
+
+function render() {
+  syncTopSongs();
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const models = cardModels(
+    {
+      exact: state.exact, sourceKeys: state.sourceKeys, kind: currentKind(),
+      isrc: state.isrc, upc: state.upc, pending: state.pending,
+    },
+    { artist: el.artist.value, title: el.title.value },
+    region, dark
+  );
+  el.results.hidden = models.length === 0;
+  if (el.results.hidden) {
+    el.cards.replaceChildren();
+    return;
+  }
+  syncCards(models);
+}
+
+// Click-to-load: the iframe (and its third-party requests) only exists
+// after the user asks for it; a second click removes it again.
+function togglePreview(btn) {
+  const slot = btn.closest('.card').querySelector('.embed-slot');
+  const open = !slot.hidden;
+  slot.replaceChildren();
+  slot.hidden = open;
+  btn.setAttribute('aria-expanded', String(!open));
+  if (open) return;
+  const iframe = document.createElement('iframe');
+  iframe.src = btn.dataset.src;
+  iframe.loading = 'lazy';
+  iframe.allow = 'encrypted-media; fullscreen; clipboard-write';
+  iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+  if (btn.dataset.aspect) iframe.style.aspectRatio = btn.dataset.aspect;
+  else iframe.height = btn.dataset.height;
+  slot.appendChild(iframe);
+}
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (button) {
+      const old = button.textContent;
+      button.textContent = 'Copied!';
+      setTimeout(() => { button.textContent = old; }, 1200);
+    }
+  } catch {
+    setNote('Clipboard unavailable — copy the link manually.');
+  }
+}
+
+el.cards.addEventListener('click', (ev) => {
+  const copyBtn = ev.target.closest('.btn-copy');
+  if (copyBtn) copyText(copyBtn.dataset.url, copyBtn);
+  const previewBtn = ev.target.closest('.btn-preview');
+  if (previewBtn) togglePreview(previewBtn);
+});
+
+el.copyAll.addEventListener('click', () => {
+  const lines = [...el.cards.querySelectorAll('.card')].map((card) => {
+    const name = card.querySelector('.card-name').textContent;
+    const url = card.querySelector('.btn-open').href;
+    return `${name}: ${url}`;
+  });
+  copyText(lines.join('\n'), el.copyAll);
+});
+
+el.copyMeta.addEventListener('click', () => {
+  const text = [el.artist.value.trim(), el.title.value.trim()].filter(Boolean).join(' - ');
+  if (text) copyText(text, el.copyMeta);
+});
+
+// The permalink only mirrors a *committed* query, but typing in the fields
+// already re-renders the cards (see the input listener) — so location.href can
+// lag one edit behind what is on screen. Share what the person sees: derive the
+// hash from the current fields, the same way writeHash does, without touching
+// the address bar. A link session keeps its own hash, exactly as writeHash
+// leaves it alone.
+function shareTarget() {
+  const fields = state.parsed ? null : fieldsQuery();
+  if (!fields) return { url: location.href, name: '' };
+  const name = queryText(fields);
+  return {
+    url: `${location.origin}${location.pathname}${location.search}${shareHashFor(name, fields.kind)}`,
+    name,
+  };
+}
+
+el.share.addEventListener('click', async () => {
+  const { url, name } = shareTarget();
+  if (navigator.share) {
+    try {
+      // One item, never two. A payload with both `text` and `url` puts two
+      // things in the share sheet and lets the target app pick; on iOS an app
+      // that keeps the string sends a bare "Artist - Title" and no link. (On
+      // Android the two are merged into one EXTRA_TEXT, so nothing is lost
+      // there either way.) The name rides along as the URL's own title.
+      await navigator.share({ title: name ? `musiclinkii · ${name}` : 'musiclinkii', url });
+      return;
+    } catch (error) {
+      // A cancelled sheet is not a failure — do not fall through and claim
+      // "Copied!" for something the person deliberately dismissed.
+      if (error?.name === 'AbortError') return;
+    }
+  }
+  copyText(url, el.share);
+});
+
+// --- Query model: what a commit is made of. A query is either a link
+// ({ link, parsed, origin }) or a structured search ({ kind, artist,
+// title, origin }); origin says which surface committed it.
+
+function inputQuery() {
+  const raw = el.input.value.trim();
+  if (!raw) return null;
+  return { link: raw, parsed: parseInput(raw), origin: 'input' };
+}
+
+function fieldsQuery() {
+  const kind = currentKind();
+  const artist = el.artist.value.trim();
+  const title = kind === 'artist' ? '' : el.title.value.trim();
+  if (!artist && !title) return null;
+  return { kind, artist, title, origin: 'fields' };
+}
+
+// Canonical text for a structured query — what the main input and the
+// share hash carry.
+function queryText(q) {
+  if (q.kind === 'artist') return q.artist;
+  return [q.artist, q.title].filter(Boolean).join(' - ');
+}
+
+function queryKey(q) {
+  // A pick carries the candidate id: two namesake chips share one name,
+  // and the running-guard must not swallow the second click as a repeat.
+  return q.link ? `link:${q.link}` : `${q.kind}:${q.artist}${q.pick ? `!${q.pick.id}` : ''}\n${q.title}`;
+}
+
+// --- Result state. resetResults touches results only — never the input
+// surfaces; keepSource preserves a link session's own cards through a
+// fields refinement. artistChips survive on purpose: they describe the
+// TITLE and self-invalidate when it changes.
+function resetResults({ keepSource = false } = {}) {
+  if (!keepSource) {
+    state.parsed = null;
+    state.sourceKeys = [];
+    state.sourceTracks = [];
+  }
+  state.exact = {};
+  for (const key of state.sourceKeys) state.exact[key] = state.parsed.url;
+  state.isrc = '';
+  state.isrcChecked = '';
+  state.isrcFrom = '';
+  state.upc = '';
+  state.upcChecked = '';
+  state.upcFrom = '';
+  state.pending = new Set();
+}
+
+// A manual artist/title edit means every found match may now be wrong:
+// invalidate in-flight lookups and drop everything except the source link
+// itself — the next commit re-derives matches for the new words. The
+// status trio clears too: "3 exact matches found" must not outlive the
+// matches it counted (safe — every post-await status write in the
+// pipelines is generation-guarded, so no stale line can reappear).
+function invalidateMatches() {
+  state.generation += 1;
+  resetResults({ keepSource: Boolean(state.parsed) });
+  setStatus('');
+  setNote('');
+  setLine(el.suggest, '');
+}
+
+function hideTrack() {
+  el.artist.value = '';
+  el.title.value = '';
+  // resetAll never render()s, so the top-songs line needs its own clear.
+  el.topsongs.hidden = true;
+  el.topsongs.textContent = '';
+  el.thumb.hidden = true;
+  el.thumb.removeAttribute('src');
+  el.track.hidden = state.inputMode !== 'search';
+  el.kindToggle.hidden = false;
+}
+
+// Keep both input surfaces telling the same story. A fields commit inside
+// a link session keeps the pasted link in the main input (and its hash) —
+// the source card must stay explicable.
+function syncSurfaces(q) {
+  if (q.link) {
+    el.input.value = q.link;
+    el.artist.value = '';
+    el.title.value = '';
+    el.kindToggle.hidden = true; // the parsed link dictates the kind
+    setInputMode('url', { focus: false, updateUrl: false });
+  } else {
+    el.artist.value = q.artist;
+    el.title.value = q.title;
+    if (!state.parsed) el.input.value = queryText(q);
+    el.kindToggle.hidden = Boolean(state.parsed);
+    setInputMode('search', { focus: false, updateUrl: false });
+  }
+  if (q.link || !state.parsed) {
+    el.thumb.hidden = true;
+    el.thumb.removeAttribute('src');
+  }
+  el.track.hidden = false;
+}
+
+// The permalink always mirrors the committed query; only a link that
+// failed to parse gets none. A fields commit inside a link session keeps
+// the link hash it already has.
+function writeHash(q) {
+  if (!q.link && state.parsed) return;
+  const hash = q.link
+    ? (q.parsed.ok ? shareHashFor(q.link) : '')
+    : shareHashFor(queryText(q), q.kind);
+  history.replaceState(null, '', location.pathname + location.search + hash);
+}
+
+// --- Per-card pending: "an exact link for this card may still arrive".
+// Seeded per commit (only when a lookup will actually run), narrowed as
+// stages settle, keyed to the generation so a stale pipeline can never
+// mutate a newer commit's set. resetResults re-creates the Set on every
+// commit — there is no counter, so nothing can leak or drift.
+function seedPending(q) {
+  const kind = currentKind();
+  const willLookup = q.link
+    ? KINDS.includes(kind)
+    : (kind === 'artist' ? Boolean(q.artist) : Boolean(q.title));
+  state.pending = new Set(
+    willLookup ? PLATFORMS.map((p) => p.key).filter((k) => !state.sourceKeys.includes(k)) : []
+  );
+}
+
+function settlePending(keys, gen) {
+  if (gen !== state.generation) return;
+  if (keys === 'all') state.pending.clear();
+  else for (const k of keys) state.pending.delete(k);
+}
+
+// --- The ONE commit path. Every trigger (input Enter/paste/magnifier,
+// form Enter/Search, chip click, share hash on load) lands here.
+let running = null; // { key, gen } — guards an identical query still in flight
+
+async function commitSearch(q) {
+  if (!q) return;
+  const key = queryKey(q);
+  // Drop only an identical query that is STILL running for the current
+  // generation — a finished or invalidated run may be committed again.
+  if (running && running.key === key && running.gen === state.generation) return;
+  state.generation += 1;
+  const gen = state.generation;
+  running = { key, gen };
+  setStatus('');
+  setNote('');
+  setLine(el.suggest, '');
+  // Chips describe the PREVIOUS query's alternatives — a new commit starts
+  // over (rounds within this commit re-create them via applyFound).
+  state.artistChips = null;
+  state.namesakeChips = null;
+  try {
+    if (q.link) {
+      // A pasted link dictates its own kind; the toggle must not carry a
+      // stale Artist/Album press into the next typed search.
+      state.kind = 'track';
+      syncKindToggle();
+      resetResults();
+      writeHash(q);
+      if (!q.parsed.ok) {
+        hideTrack();
+        render();
+        if (q.parsed.reason === 'shortlink' || q.parsed.reason === 'smartlink') setNote(q.parsed.note);
+        else setNote('That doesn’t look like a music link from a known platform.');
+        return;
+      }
+      state.parsed = q.parsed;
+      state.sourceKeys = sourceCardKeys(q.parsed);
+      for (const k of state.sourceKeys) state.exact[k] = q.parsed.url;
+      syncSurfaces(q);
+      syncKindUi();
+      seedPending(q);
+      render();
+      await runLinkPipeline(q, gen);
+    } else {
+      // A fields commit refines the session on screen (source card stays);
+      // a main-input commit starts a fresh one.
+      resetResults({ keepSource: q.origin === 'fields' && Boolean(state.parsed) });
+      if (!state.parsed) {
+        state.kind = q.kind;
+        // Programmatic commits (OCR picks, share links) do not click the
+        // toggle first, so the visible pressed state must follow the query.
+        syncKindToggle();
+      }
+      syncSurfaces(q);
+      writeHash(q);
+      syncKindUi();
+      seedPending(q);
+      render();
+      await runLookup(gen, q);
+    }
+  } catch { /* every stage is best effort — search links stay */ }
+  finally {
+    if (running && running.gen === gen) running = null;
+    if (gen === state.generation) clearPhase();
+  }
+}
+
+function commitFromInput() {
+  commitSearch(inputQuery());
+}
+
+function commitFromFields() {
+  commitSearch(fieldsQuery());
+}
+
+// A namesake chip click: every candidate shares the name, so the commit
+// carries the chosen identity as q.pick — findArtistLinks pins it instead
+// of searching, and the MB fan-out anchors on the picked Deezer URL.
+function commitFromPick(candidate) {
+  commitSearch({ kind: 'artist', artist: candidate.name, title: '', origin: 'fields', pick: candidate });
+}
+
+// "Next search": one click back to a clean slate. The structured search
+// returns to Song so the next query cannot inherit an Album choice.
+function resetAll() {
+  state.generation += 1; // invalidate anything in flight
+  running = null;
+  resetVinylScanner();
+  resetResults();
+  state.artistChips = null;
+  state.namesakeChips = null;
+  state.kind = 'track';
+  syncKindToggle();
+  el.input.value = '';
+  hideTrack();
+  setStatus('');
+  setNote('');
+  setLine(el.suggest, '');
+  el.results.hidden = true;
+  el.cards.replaceChildren();
+  history.replaceState(null, '', location.pathname + location.search);
+  syncKindUi();
+}
+
+// --- Pipeline. Link sessions fetch source metadata first, then everything
+// funnels into runLookup, whose finally-block settles the pending set.
+
+// What js/enrich.mjs needs from here: the shared state object it mutates
+// (same reference, so the generation guard still works) plus the two UI
+// hooks it calls between awaits.
+const enrichContext = (gen) => ({ state, gen, render, setPhase });
+
+async function runLinkPipeline(q, gen) {
+  setPhase('Looking up track info');
+  try {
+    const meta = await fetchMetadata(q.parsed);
+    if (gen !== state.generation) return;
+    el.artist.value = meta.artist || '';
+    el.title.value = meta.title || '';
+    // Spotify artist pages: oEmbed puts the artist name in the title.
+    if (q.parsed.kind === 'artist' && !el.artist.value && el.title.value) {
+      el.artist.value = el.title.value;
+      el.title.value = '';
+    }
+    if (meta.thumb) {
+      el.thumb.src = meta.thumb;
+      el.thumb.hidden = false;
+    }
+    Object.assign(state.exact, meta.exact || {});
+    if (meta.tracks?.length) state.sourceTracks = meta.tracks;
+    if (meta.isrc) state.isrc = meta.isrc;
+    if (meta.upc) state.upc = meta.upc;
+    for (const k of state.sourceKeys) state.exact[k] = q.parsed.url;
+    if (meta.note) setNote(meta.note);
+  } catch {
+    if (gen !== state.generation) return;
+    setNote('Couldn’t fetch track info — enter artist and title to build the links.');
+  }
+  render();
+  await runLookup(gen);
+}
+
+// Merge one catalog round into state and the form fields. Field values are
+// assigned directly, WITHOUT dispatching input events: the field listener
+// would run invalidateMatches() and wipe the dedupe guards
+// (isrcFrom/upcChecked) that keep later rounds from redoing work.
+function applyFound(found) {
+  if (found.artist && !el.artist.value.trim()) el.artist.value = found.artist;
+  // A confirmed catalog match upgrades the display: cover art for any
+  // session still missing one, canonical spelling for text/form sessions
+  // (pasted links keep their own fetched metadata).
+  if (found.thumb && el.thumb.hidden) {
+    el.thumb.src = found.thumb;
+    el.thumb.hidden = false;
+  }
+  if (!state.parsed) {
+    if (found.canonicalArtist) el.artist.value = found.canonicalArtist;
+    if (found.canonicalTitle) el.title.value = found.canonicalTitle;
+  }
+  for (const key of ['deezer', 'appleMusic']) {
+    if (found[key] && !state.sourceKeys.includes(key)) state.exact[key] = found[key];
+  }
+  // Only a round WITH candidates may overwrite the chips — a round with
+  // the artist known (no candidates returned) must leave them standing.
+  // Keyed by the field value, which canonicalization may just have
+  // changed — the chips must describe what the title field shows NOW.
+  if (found.artistCandidates?.length) {
+    state.artistChips = {
+      title: el.title.value.trim(),
+      // Keep the auto-pick in the pool: after a correction it becomes a
+      // chip again, so a wrong correction has a one-click way back.
+      names: found.artist ? [found.artist, ...found.artistCandidates] : found.artistCandidates,
+      itunesDown: Boolean(found.itunesDown),
+    };
+  }
+  // Namesake choices (artist kind only — findExactLinks never returns
+  // these). Keyed by the artist field so an edit self-invalidates them.
+  if (found.namesakeCandidates?.length) {
+    state.namesakeChips = {
+      artist: el.artist.value.trim(),
+      candidates: found.namesakeCandidates,
+      mode: found.namesakeMode,
+    };
+  }
+}
+
+async function runLookup(gen, q) {
+  const kind = currentKind();
+  const artist = el.artist.value.trim();
+  const title = el.title.value.trim();
+  try {
+    if (kind === 'artist') {
+      await runArtistLookup(gen, artist, q?.pick);
+      return;
+    }
+    if (kind !== 'track' && kind !== 'album') return; // playlists: nothing to match
+    if (!title) return; // artist-only in track/album kind: search links only
+    setPhase('Searching catalogs');
+    const found = await findExactLinks({ artist, title, kind }, region, state.sourceKeys);
+    if (gen !== state.generation) return;
+    applyFound(found);
+    // The artist was only just discovered — run one more catalog round so
+    // the artist-dependent lookups (iTunes exact match) can use it.
+    // Awaited sequentially: "the catalog stage is done" must be one
+    // well-defined moment for the pending set to key on.
+    if (found.artist && !artist) {
+      const again = await findExactLinks(
+        { artist: el.artist.value.trim(), title: el.title.value.trim(), kind },
+        region, state.sourceKeys
+      );
+      if (gen !== state.generation) return;
+      applyFound(again);
+    }
+    settlePending(['deezer', 'appleMusic'], gen);
+    updateOutcome(kind);
+    render();
+    const throttled = await enrichByCode(kind === 'album' ? 'upc' : 'isrc', enrichContext(gen));
+    if (gen !== state.generation) return;
+    if (throttled) noteMbThrottled();
+    updateOutcome(kind);
+  } finally {
+    settlePending('all', gen);
+    if (gen === state.generation) render();
+  }
+}
+
+// Artist pipeline: catalog artist search (Deezer + iTunes), then the
+// MusicBrainz artist fan-out. The pasted artist URL is the best anchor —
+// it IS the identity; a catalog match is only a ranked guess.
+async function runArtistLookup(gen, artist, pick) {
+  if (!artist) return;
+  setPhase('Searching catalogs');
+  const found = await findArtistLinks(
+    { artist, tracks: state.sourceTracks, pick }, region, state.sourceKeys
+  );
+  if (gen !== state.generation) return;
+  applyFound(found);
+  settlePending(['deezer', 'appleMusic'], gen);
+  render();
+  // Offer namesake choices now — the MB fan-out below takes seconds and
+  // must not delay a decision the user could already be making.
+  showNamesakeChips();
+  setPhase('Checking MusicBrainz for exact links');
+  // Every known profile URL anchors the MB lookup — the pasted link AND
+  // the catalog matches. MB may hold any one of them (one request either way).
+  const anchorUrls = [state.parsed?.url, state.exact.deezer, state.exact.appleMusic];
+  const { links, throttled } = await findLinksByArtist({ urls: anchorUrls, name: el.artist.value.trim() });
+  if (gen !== state.generation) return;
+  // Same silent failure the code path enrichByCode used to have: a
+  // throttled fan-out shows "1 exact match" where the last one found
+  // five, and MB is the only keyless route to those artist links.
+  if (throttled) noteMbThrottled();
+  mergeExactLinks(state, links);
+  render();
+  updateOutcome('artist');
+}
+
+function setKind(kind) {
+  if (state.kind === kind) return;
+  state.kind = kind;
+  syncKindToggle();
+  syncKindUi();
+  // A different kind means different entities — matches are stale, but
+  // the search itself stays a deliberate commit away.
+  invalidateMatches();
+  render();
+}
+
+// --- OCR-first vinyl cover input. The recognizer produces album candidates,
+// never a silent pick. A user click turns the chosen candidate into the same
+// explicit album commit that the text form already understands.
+
+let scanGeneration = 0;
+let scanPreviewUrl = '';
+let scanBusy = false;
+let scanSourceBlob = null;
+const VISUAL_MODEL_PREFERENCE = 'musiclinkii-visual-model';
+
+function savedVisualModel() {
+  try {
+    const saved = localStorage.getItem(VISUAL_MODEL_PREFERENCE);
+    return VISUAL_MODELS[saved] ? saved : DEFAULT_VISUAL_MODEL;
+  } catch {
+    return DEFAULT_VISUAL_MODEL;
+  }
+}
+
+let visualModelKey = savedVisualModel();
+el.visualModelSelect.value = visualModelKey;
+
+function setScanStatus(text, tone = 'info') {
+  setLine(el.scanStatus, text, tone);
+}
+
+function setScanBusy(busy) {
+  scanBusy = busy;
+  for (const node of [
+    el.scanCamera, el.scanFile, el.scanPaste, el.scanUrl, el.scanFind,
+    el.visualModelSelect, el.downloadVisualModel, el.deleteVisualModel,
+    ...el.scanCandidates.querySelectorAll('button'),
+  ]) {
+    node.disabled = busy;
+  }
+  const submit = el.scanUrlForm.querySelector('button[type="submit"]');
+  submit.disabled = busy;
+}
+
+function renderVisualModelStorage(stored, text = '') {
+  const model = VISUAL_MODELS[visualModelKey];
+  el.visualModelDetails.textContent = `${model.variant} · ${model.dimensions} dimensions · ${(model.bytes / 1e6).toFixed(1)} MB model files`;
+  el.visualModelUrl.href = model.url;
+  el.visualModelUrl.textContent = `${model.repository} on Hugging Face`;
+  el.visualModelState.textContent = text || (stored
+    ? 'Stored on this device'
+    : 'Not stored — downloaded only when you choose');
+  el.visualModelState.closest('.model-storage').dataset.stored = String(stored);
+  el.downloadVisualModel.hidden = stored;
+  el.deleteVisualModel.hidden = !stored;
+}
+
+async function refreshVisualModelStorage() {
+  try {
+    await migrateLegacyVisualModel();
+    renderVisualModelStorage(await visualModelStored({ modelKey: visualModelKey }));
+  } catch {
+    renderVisualModelStorage(false, 'Browser storage unavailable');
+  }
+}
+
+function writeVinylScanUrl(open) {
+  const search = vinylScanSearch(location.search, open);
+  history.replaceState(null, '', location.pathname + search + location.hash);
+}
+
+function showVinylScanner({ updateUrl = true } = {}) {
+  setInputMode('vinyl', { focus: false, updateUrl });
+}
+
+function resetVinylScanner({ updateUrl = true } = {}) {
+  scanGeneration += 1;
+  setScanBusy(false);
+  if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+  scanPreviewUrl = '';
+  scanSourceBlob = null;
+  el.scanPreview.removeAttribute('src');
+  el.scanPreview.hidden = true;
+  el.scanText.value = '';
+  el.scanTextWrap.hidden = true;
+  el.scanCandidates.replaceChildren();
+  el.scanUrl.value = '';
+  el.scanCamera.value = '';
+  el.scanFile.value = '';
+  setScanStatus('');
+  if (state.inputMode === 'vinyl') setInputMode('url', { focus: false, updateUrl: false });
+  else el.vinylScan.hidden = true;
+  if (updateUrl) writeVinylScanUrl(false);
+}
+
+function scanProgress(message) {
+  const labels = {
+    'loading tesseract core': 'Loading OCR engine',
+    'initializing tesseract': 'Initializing OCR engine',
+    'loading language traineddata': 'Loading English text model',
+    'initializing api': 'Preparing text recognition',
+    'recognizing text': 'Reading cover text',
+  };
+  const label = labels[message?.status] || 'Reading cover text';
+  const progress = Number(message?.progress);
+  const percent = Number.isFinite(progress) && progress > 0 ? ` ${Math.round(progress * 100)}%` : '';
+  setScanStatus(label + percent);
+}
+
+function visualProgress(message, modelKey = visualModelKey) {
+  if (message.stage === 'model') {
+    setScanStatus(`Loading visual model ${message.percent}%`);
+    if (modelKey === visualModelKey) {
+      renderVisualModelStorage(false, `Downloading model ${message.percent}%`);
+    }
+  } else if (message.stage === 'model-ready') {
+    if (modelKey === visualModelKey) renderVisualModelStorage(true);
+  } else if (message.stage === 'query') {
+    setScanStatus('Analyzing selected cover locally');
+  } else if (message.stage === 'reference') {
+    setScanStatus(`Comparing catalog artwork ${message.current}/${message.total}`);
+  } else if (message.stage === 'catalog') {
+    setScanStatus(`Searching local cover index ${message.current}/${message.total}`);
+  }
+}
+
+async function compareScanArtwork(candidates, gen) {
+  if (scanBusy || !scanSourceBlob || gen !== scanGeneration) return;
+  setScanBusy(true);
+  try {
+    const ranked = await rerankVinylCandidates(scanSourceBlob, candidates, {
+      modelKey: visualModelKey,
+      onProgress: visualProgress,
+    });
+    if (gen !== scanGeneration) return;
+    renderScanCandidates(ranked);
+    setScanStatus('Artwork compared locally. Choose the right album.');
+  } catch {
+    if (gen === scanGeneration) {
+      setScanStatus('Artwork comparison is unavailable. The OCR order is unchanged.', 'warn');
+    }
+  } finally {
+    if (gen === scanGeneration) setScanBusy(false);
+  }
+}
+
+async function searchScanArtwork(gen) {
+  if (scanBusy || !scanSourceBlob || gen !== scanGeneration) return;
+  setScanBusy(true);
+  try {
+    const queryVector = await embedVinylCover(scanSourceBlob, {
+      modelKey: 'small',
+      onProgress: (message) => visualProgress(message, 'small'),
+    });
+    const result = await searchVinylCatalog(queryVector, { onProgress: visualProgress });
+    if (gen !== scanGeneration) return;
+    renderScanCandidates(result.candidates);
+    setScanStatus(`${result.manifest.releaseCount} pilot covers searched locally. Choose the right album.`);
+  } catch {
+    if (gen === scanGeneration) {
+      setScanStatus('The local cover pilot is unavailable. Correct the text or try another photo.', 'warn');
+    }
+  } finally {
+    if (gen === scanGeneration) setScanBusy(false);
+  }
+}
+
+function renderScanCandidates(candidates, {
+  offerVisualComparison = false,
+  offerCatalogSearch = false,
+} = {}) {
+  el.scanCandidates.replaceChildren();
+  if (offerCatalogSearch && scanSourceBlob) {
+    const compare = document.createElement('button');
+    compare.type = 'button';
+    compare.className = 'btn scan-compare';
+    compare.textContent = 'Search the local 12-cover pilot (uses Small)';
+    compare.addEventListener('click', () => searchScanArtwork(scanGeneration));
+    el.scanCandidates.appendChild(compare);
+  }
+  if (!candidates.length) return;
+  const prompt = document.createElement('p');
+  prompt.className = 'scan-privacy';
+  prompt.textContent = 'Possible matches — choose the right album:';
+  el.scanCandidates.appendChild(prompt);
+  if (offerVisualComparison && canRerankVisually(candidates)) {
+    const compare = document.createElement('button');
+    compare.type = 'button';
+    compare.className = 'btn scan-compare';
+    compare.textContent = 'Compare cover artwork locally (downloads model once)';
+    compare.addEventListener('click', () => compareScanArtwork(candidates, scanGeneration));
+    el.scanCandidates.appendChild(compare);
+  }
+  for (const candidate of candidates) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'scan-candidate';
+    if (candidate.thumb) {
+      const image = document.createElement('img');
+      image.src = candidate.thumb;
+      image.alt = '';
+      image.loading = 'lazy';
+      image.referrerPolicy = 'no-referrer';
+      button.appendChild(image);
+    }
+    const copy = document.createElement('span');
+    const title = document.createElement('strong');
+    title.textContent = candidate.title;
+    const artist = document.createElement('small');
+    artist.textContent = [candidate.artist, candidate.date?.slice(0, 4), candidate.country]
+      .filter(Boolean).join(' · ');
+    copy.append(title, artist);
+    button.appendChild(copy);
+    button.addEventListener('click', () => {
+      resetVinylScanner();
+      commitSearch({ kind: 'album', artist: candidate.artist, title: candidate.title, origin: 'fields' });
+    });
+    el.scanCandidates.appendChild(button);
+  }
+}
+
+async function searchRecognizedText(text, gen = scanGeneration) {
+  const queries = buildOcrQueries(text);
+  if (!queries.length) {
+    renderScanCandidates([], { offerCatalogSearch: true });
+    setScanStatus('No readable text found. Try a tighter, glare-free photo.', 'warn');
+    return;
+  }
+  setScanStatus('Searching the album catalog');
+  const rawCandidates = await findOcrAlbumCandidates(queries);
+  if (gen !== scanGeneration) return;
+  const candidates = rankOcrAlbumCandidates(rawCandidates, text);
+  renderScanCandidates(candidates, {
+    offerVisualComparison: true,
+    offerCatalogSearch: !candidates.length,
+  });
+  setScanStatus(candidates.length
+    ? `${candidates.length} possible ${candidates.length === 1 ? 'match' : 'matches'} found.`
+    : 'No album match found. Correct the recognized text or try another photo.',
+  candidates.length ? 'info' : 'warn');
+}
+
+async function scanImage(blob) {
+  if (scanBusy) return;
+  const gen = ++scanGeneration;
+  setScanBusy(true);
+  renderScanCandidates([]);
+  el.scanText.value = '';
+  el.scanTextWrap.hidden = true;
+  scanSourceBlob = blob;
+  if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+  scanPreviewUrl = URL.createObjectURL(blob);
+  el.scanPreview.src = scanPreviewUrl;
+  el.scanPreview.hidden = false;
+  try {
+    const result = await recognizeVinylText(blob, (message) => {
+      if (gen === scanGeneration) scanProgress(message);
+    });
+    if (gen !== scanGeneration) return;
+    const text = result.text.trim();
+    el.scanText.value = text;
+    el.scanTextWrap.hidden = !text;
+    await searchRecognizedText(text, gen);
+  } catch (error) {
+    if (gen === scanGeneration) setScanStatus(error?.message || 'The cover could not be scanned.', 'warn');
+  } finally {
+    if (gen === scanGeneration) setScanBusy(false);
+  }
+}
+
+async function scanImageUrl(event) {
+  event.preventDefault();
+  if (scanBusy) return;
+  setScanBusy(true);
+  setScanStatus('Loading image');
+  try {
+    const blob = await fetchImage(el.scanUrl.value);
+    setScanBusy(false);
+    await scanImage(blob);
+  } catch (error) {
+    setScanBusy(false);
+    setScanStatus(error?.message || 'The image could not be loaded.', 'warn');
+  }
+}
+
+// --- Listeners. Typing stays quiet everywhere; only commits act.
+
+el.nextLink.addEventListener('click', () => {
+  resetAll();
+  setInputMode('url');
+});
+
+// Paste is a complete entry — resolve it instantly, no extra click.
+el.input.addEventListener('paste', (event) => {
+  if (!event.defaultPrevented) setTimeout(commitFromInput, 0);
+});
+el.input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commitFromInput(); });
+el.go.addEventListener('click', commitFromInput);
+
+for (const button of el.searchModeToggle.querySelectorAll('.search-mode-btn')) {
+  button.addEventListener('click', () => setInputMode(button.dataset.mode));
+}
+el.closeVinylScan.addEventListener('click', resetVinylScanner);
+el.scanPaste.addEventListener('click', () => {
+  el.scanPaste.focus();
+  setScanStatus('Press ⌘V or Ctrl+V to paste an image.');
+});
+el.visualModelSelect.addEventListener('change', async () => {
+  visualModelKey = el.visualModelSelect.value;
+  try {
+    localStorage.setItem(VISUAL_MODEL_PREFERENCE, visualModelKey);
+  } catch { /* selection still works for this page */ }
+  await refreshVisualModelStorage();
+});
+el.downloadVisualModel.addEventListener('click', async () => {
+  if (scanBusy) return;
+  setScanBusy(true);
+  renderVisualModelStorage(false, 'Preparing model download…');
+  try {
+    await prepareVisualModel({ modelKey: visualModelKey, onProgress: visualProgress });
+    renderVisualModelStorage(true);
+    setScanStatus('The visual model is ready and stays on this device.');
+  } catch {
+    await refreshVisualModelStorage();
+    setScanStatus('The visual model could not be downloaded.', 'warn');
+  } finally {
+    setScanBusy(false);
+  }
+});
+el.deleteVisualModel.addEventListener('click', async () => {
+  if (scanBusy) return;
+  el.deleteVisualModel.disabled = true;
+  renderVisualModelStorage(true, 'Deleting model…');
+  try {
+    await clearVisualModel({ modelKey: visualModelKey });
+    renderVisualModelStorage(false);
+    setScanStatus('The local visual model was deleted. It will download again when needed.');
+  } catch {
+    await refreshVisualModelStorage();
+    setScanStatus('The local visual model could not be deleted.', 'warn');
+  } finally {
+    el.deleteVisualModel.disabled = false;
+  }
+});
+el.scanUrlForm.addEventListener('submit', scanImageUrl);
+el.scanFind.addEventListener('click', async () => {
+  if (scanBusy) return;
+  const gen = ++scanGeneration;
+  setScanBusy(true);
+  try {
+    await searchRecognizedText(el.scanText.value, gen);
+  } finally {
+    if (gen === scanGeneration) setScanBusy(false);
+  }
+});
+
+for (const input of [el.scanCamera, el.scanFile]) {
+  input.addEventListener('change', () => {
+    const image = input.files?.[0];
+    input.value = '';
+    if (image) scanImage(image);
+  });
+}
+
+// Capture phase beats the main text input's instant-paste handler: an image
+// paste opens the scanner, while ordinary pasted text keeps its old path.
+document.addEventListener('paste', (event) => {
+  const image = pastedImage(event.clipboardData);
+  if (!image) {
+    if (document.activeElement === el.scanPaste) {
+      event.preventDefault();
+      setScanStatus('The pasted clipboard item is not an image.', 'warn');
+    }
+    return;
+  }
+  event.preventDefault();
+  showVinylScanner();
+  scanImage(image);
+}, true);
+
+for (const field of [el.artist, el.title]) {
+  // Typing only invalidates stale match badges on the visible cards —
+  // the web lookups wait for the Search button, Enter, or a chip click.
+  field.addEventListener('input', () => {
+    invalidateMatches();
+    render();
+  });
+  field.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') commitFromFields(); });
+}
+el.formSearch.addEventListener('click', commitFromFields);
+
+for (const btn of el.kindToggle.querySelectorAll('.kind-btn')) {
+  btn.addEventListener('click', () => setKind(btn.dataset.kind));
+}
+
+// Arriving via a share link (#l=…): populate and resolve immediately.
+const shared = linkFromHash(location.hash);
+if (shared) {
+  if (KINDS.includes(shared.kind)) state.kind = shared.kind;
+  syncKindToggle();
+  syncKindUi();
+  el.input.value = shared.link;
+  commitFromInput();
+}
+
+if (vinylScanRequested(location.search)) {
+  showVinylScanner({ updateUrl: false });
+} else {
+  setInputMode('url');
+}
+
+refreshVisualModelStorage();

@@ -1,0 +1,212 @@
+# musiclinkii
+
+One music link in — every platform out.
+
+Paste a track or album link from Spotify, Apple Music, YouTube / YouTube
+Music, Deezer, TIDAL, Amazon Music, SoundCloud or Bandcamp — search by artist
+and song or album, or scan a vinyl cover — and get links to the same track or
+album on every other streaming platform. Fully static, no server, no tracking.
+
+**Live: <https://bmmmm.github.io/musiclinkii/>**
+
+## How it works
+
+Everything runs in your browser — there is no backend:
+
+1. **Parse** — the pasted link is matched against each platform's known URL
+   schemes (`open.spotify.com/track/{id}`, `music.apple.com/{sf}/album/…?i={id}`,
+   `youtu.be/{id}`, `deezer.com/track/{id}`, `tidal.com/track/{id}`, …).
+2. **Scan (optional)** — a camera photo, local image, pasted image or image URL
+   is read locally with [Tesseract.js](https://github.com/naptha/tesseract.js).
+   Only the recognized text becomes a catalog query; the image is never
+   uploaded. The OCR runtime and English model are lazy-loaded on the first
+   scan, so the normal link workflow pays no download cost.
+   Every image starts with an explicit action by the person using the page.
+   Image URLs are fetched directly by that browser with a GET request; there is
+   no upload endpoint, proxy, automatic cover selection or background import.
+   If OCR leaves multiple candidates, an optional second click downloads
+   [DINOv2-small](https://huggingface.co/Xenova/dinov2-small), embeds the
+   selected image locally and reorders the catalog covers by visual similarity.
+   If OCR finds nothing, the same explicit action can search a downloaded static
+   vinyl-cover index entirely in the browser. Neither the image nor its vector is
+   sent anywhere, and no album is selected without confirmation. The visual model
+   remains in Musiclinkii's browser cache across visits until the person using the
+   scanner chooses **Delete local model** or clears the site's browser data. Small,
+   Base and Large q4 variants can be selected independently; the choice is remembered
+   by the browser and each downloaded variant has its own cache. Models
+   downloaded before the dedicated cache existed are migrated without downloading
+   them again.
+3. **Resolve** — title and artist are fetched from keyless public endpoints
+   that allow cross-origin requests (verified empirically):
+   [iTunes Lookup/Search](https://performance-partners.apple.com/search-api),
+   YouTube oEmbed, Spotify oEmbed, the Deezer API (via JSONP) and
+   [MusicBrainz](https://musicbrainz.org/doc/MusicBrainz_API) as a fallback.
+   The extracted artist/title stays editable, so a wrong guess is never a
+   dead end.
+4. **Link out** — exact matches (marked ✓) are found where a platform offers
+   keyless search (Deezer, iTunes → Apple Music); every other platform gets an
+   honest search link built from its live-verified search URL scheme.
+
+Why no [Odesli/Songlink](https://odesli.co/)? Its public API was sunset in
+July 2026 and never allowed cross-origin browser calls — a static page can't
+use it.
+
+## Platform support
+
+| Platform | Parse input | Metadata | Exact link out | Search link out | Preview embed | App link |
+|---|---|---|---|---|---|---|
+| Spotify | ✓ | title (oEmbed) | best effort (tracks: ISRC → MusicBrainz; albums: UPC/barcode → MusicBrainz) | ✓ (ISRC-precise where known) | ✓ | ✓ `spotify:` |
+| Apple Music | ✓ | ✓ (iTunes) | ✓ (iTunes match, tracks + albums) | ✓ | — (embed player broken upstream) | — |
+| YouTube / YT Music | ✓ | ✓ (oEmbed) | same video | ✓ (YT Music ISRC-precise for tracks, UPC-precise for albums, where known) | ✓ (nocookie) | — |
+| Deezer | ✓ | ✓ (JSONP) | ✓ (Deezer search, tracks + albums) | ✓ | ✓ | ✓ `deezer://` |
+| TIDAL | ✓ | best effort (MusicBrainz) | best effort (albums: UPC → MusicBrainz) | ✓ | ✓ | — |
+| Amazon Music | ✓ | — | — | ✓ | — | — |
+| SoundCloud | ✓ | best effort (oEmbed) | — | ✓ | ✓ | — |
+| Bandcamp | ✓ | guessed from URL | — | ✓ | — | — |
+| Qobuz | ✓ | guessed from URL | best effort (albums: UPC → MusicBrainz) | ✓ | — | — |
+
+**No link at hand?** Choose **Search**, then enter **Artist + song** in the
+visible `Artist — Song` format or choose **Album** for `Artist — Album`.
+Both run the same pipeline from text: search links for every platform, plus
+catalog matches where Deezer/iTunes agree. Ambiguous titles get one-click
+artist chips instead of a silent guess. The vinyl scanner is an OCR-first
+alternative input:
+it always shows album candidates for confirmation and never silently picks
+one. When OCR finds two to five plausible albums with cover art, the person
+scanning can explicitly run local visual comparison to improve their order.
+When OCR finds no catalog candidate, the same button can search the first static
+long-tail pilot: 12 confirmed vinyl releases in a 4,620-byte Int8 vector shard.
+That proves the zero-text path and shard transfer, but it is deliberately labeled
+as a pilot rather than pretending to provide broad catalog coverage.
+
+Short links (`spotify.link`, `link.deezer.com`, `on.soundcloud.com`) can't be
+expanded client-side — open them once and paste the full URL instead.
+
+**Smart links** (Linkfire `lnk.to`, Feature.fm `ffm.to`, The Orchard
+`orcd.co`, Believe `bfan.link`, DistroKid HyperFollow, Hypeddit, …) are
+recognized and explained: those pages already hold every platform link, but
+none of the services sends CORS headers, so a static page can't read them —
+open the smart link and paste one platform link instead. Exception:
+`song.link`/`album.link` URLs with a platform prefix (`/s/`, `/i/`, `/y/`,
+`/d/`, `/t/`) carry the source ID in the path and resolve natively. The
+Feature.fm and Linkfire resolver APIs exist but are partner-gated — no
+self-service access a keyless static app could use.
+
+**Previews are click-to-load**: the embed iframe (and its third-party
+requests) only exists after you press the Preview button — nothing is loaded
+from streaming providers before that. Tracking parameters in pasted links
+(`?si=`, `ref=dm_sh_…`, `marketplaceId`, …) are stripped: every shown link is
+rebuilt canonically from the parsed ID.
+
+**App links** exist where a URL scheme is documented or well-established:
+`spotify:track:{id}` (IANA-registered), `deezer://` and Apple Music via the
+`music://` URL transform (both best effort). Other platforms have no
+reliable scheme — on mobile their https links already open the native app
+via universal links. If the app isn't installed, browsers silently ignore
+the click.
+
+**Sharing**: the pasted link lives in the page URL as `#l=…`, so the
+address bar is always a shareable permalink (the Share button uses the
+system share sheet where available, clipboard otherwise). The fragment
+never reaches any server. The Copy button next to Artist/Title copies
+plain `Artist - Title` text.
+
+Every external endpoint and URL scheme this app relies on — with CORS
+status, verification date, code location and where to look when one
+breaks — is catalogued in [ENDPOINTS.md](ENDPOINTS.md).
+
+## Development
+
+No build step and no installed dependencies. Serve the directory and open it:
+
+```sh
+python3 -m http.server 8000
+# → http://localhost:8000
+```
+
+Run the tests (URL parsers, link builders and card models are pure
+functions):
+
+```sh
+node --test 'tests/*.test.mjs'
+```
+
+The visual vinyl fallback has a separate, reproducible
+[long-tail retrieval benchmark](benchmarks/vinyl/README.md). Its sampler keeps
+third-party cover art in an ignored local cache. The repository ships only the
+generated Int8 vectors and MusicBrainz/Discogs identifiers, never those images.
+After downloading `pilot-export.json` from the benchmark page, rebuild the static
+assets with:
+
+```sh
+node scripts/build-vinyl-index-assets.mjs \
+  --input .cache/vinyl-benchmark/pilot-export.json
+```
+
+### Vinyl test page (unlisted)
+
+`vinyl-test/index.html` is a German, single-screen page for collecting real
+phone photos of record covers from a friend. It is not linked from the app or
+the sitemap and carries `noindex`; share the URL directly. The page runs the
+same client-side pipeline as the scanner (OCR, Deezer album search, DINOv2
+Small rerank, the local 12-cover index) on each photo and asks which tile was
+right, or for artist and title when none was. Photos never leave the phone;
+as in the app, only the recognised text goes to the Deezer album search and
+only catalog thumbnails are downloaded. Saving is an explicit action into
+IndexedDB, and the report leaves the device only through Share or Download.
+Each saved entry holds a 640 px JPEG copy of the photo, the OCR text, the
+Int8 cover vector in the index encoding (so a later index can be scored
+against the photos without re-embedding them), the person's answers and
+basic device facts (user agent, screen).
+
+Sharing and downloading hand out the same JSON under different names. The
+download keeps `…-YYYY-MM-DD.json`; the share sends `….json.txt` as
+`text/plain`, because Chromium's share allowlist rejects both the `.json`
+extension and `application/json` — on Android with a `NotAllowedError` that
+`canShare()` does not predict. The evaluator parses the body, so either file
+works as `--input`.
+
+Evaluate a received report offline; the summary lands next to the input:
+
+```sh
+node scripts/evaluate-vinyl-test-report.mjs \
+  --input ~/Downloads/musiclinkii-vinyl-test-2026-09-06.json \
+  --heldout .cache/vinyl-heldout
+```
+
+`--heldout` additionally writes `photos/<entryId>.jpg` and an `index.json`
+whose rows use the spike layout (`name`, `original`, plus the truth and the
+recorded vector), so `benchmarks/vinyl/spikes/*/dino/extract.py` reads it
+unchanged; the classical spike scripts also expect synthetic `mild`/`hard`
+variants, which real photos do not have. The directory is ignored by git.
+
+**Cache busting is automatic — nothing to bump by hand.** Every asset
+reference in `index.html` carries the marker `v=dev`, and the pages workflow
+rewrites it to the commit SHA as it deploys. GitHub Pages serves everything
+with `max-age=600` and caches HTML, CSS and modules independently at the
+edge, so one stamped version per deploy is what keeps the page from mixing a
+new stylesheet with an old module chain.
+
+Adding a module? Give it an import map entry in `index.html` — without one
+it ships unversioned. `tests/assets.test.mjs` fails until you do, and the
+workflow refuses to deploy if the markers go missing.
+
+## Credits
+
+Brand icons from [simple-icons](https://github.com/simple-icons/simple-icons)
+(CC0-1.0). On-demand text recognition uses
+[Tesseract.js](https://github.com/naptha/tesseract.js) (Apache-2.0).
+Optional local cover comparison uses
+[Transformers.js](https://github.com/huggingface/transformers.js)
+(Apache-2.0) and the Transformers.js-compatible
+[DINOv2-small conversion](https://huggingface.co/Xenova/dinov2-small) of
+[Meta's Apache-2.0 model](https://huggingface.co/facebook/dinov2-small).
+All trademarks belong to their respective owners.
+
+## Support
+
+If this saves you time, you can [support me on Ko-fi](https://ko-fi.com/bmabma).
+
+## License
+
+[GPL-3.0-or-later](LICENSE)

@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Pure card-model builder: platform registry + current state → what each
+// card should show. No DOM access — unit-tested in tests/cards.test.mjs.
+
+import { PLATFORMS, buildQuery } from './links.mjs';
+import { parseInput } from './parsers.mjs';
+import { embedFor, appLinkFor, appLinkForCodeSearch } from './embeds.mjs';
+
+// → [{ key, name, badge, url, embed, app }] in PLATFORMS order.
+export function cardModels({ exact, sourceKeys, kind, isrc, upc, pending }, { artist, title }, region, dark) {
+  const query = buildQuery(artist, title);
+  // Accepts a Set or an array; absent means nothing is pending.
+  const pendingSet = new Set(pending || []);
+  const parts = {
+    artist: (artist || '').trim(),
+    title: (title || '').trim(),
+    kind: kind || 'track',
+    isrc: isrc || '',
+    upc: upc || '',
+  };
+  const models = [];
+  for (const p of PLATFORMS) {
+    const exactUrl = exact[p.key];
+    const url = exactUrl || (query ? p.searchUrl(query, region, parts) : null);
+    if (!url) continue;
+    // Exact URLs (source or match) are entities our own parser understands —
+    // that's what unlocks embed previews and app links. Search URLs aren't.
+    const entity = exactUrl ? parseInput(exactUrl) : null;
+    // ISRC/UPC searches land on exactly the right entity — worth a hint.
+    // (Both codes are alphanumeric, so a plain substring test is exact.)
+    const code = !exactUrl && parts.isrc && url.includes(parts.isrc) ? 'isrc'
+      : !exactUrl && parts.upc && url.includes(parts.upc) ? 'upc' : '';
+    models.push({
+      key: p.key,
+      name: p.name,
+      badge: sourceKeys.includes(p.key) ? 'source' : (exactUrl ? 'match' : 'search'),
+      url,
+      viaCode: Boolean(code),
+      codeKind: code,
+      embed: entity ? embedFor(entity, dark) : null,
+      // Without an exact entity there is still one deep link worth offering:
+      // an ISRC search card resolves to the exact track inside the app.
+      // Keyed off `code` so the app button appears exactly when the badge
+      // says the card searches by code — the two can never disagree.
+      app: entity ? appLinkFor(entity) : (code === 'isrc' ? appLinkForCodeSearch(p.key, parts) : null),
+      // A pending card by definition has no exact URL, hence no embed —
+      // the flag flipping can never tear down an open preview iframe.
+      pending: !exactUrl && pendingSet.has(p.key),
+    });
+  }
+  return models;
+}
+
+// Change signature: two models with the same signature render identically,
+// so the renderer can leave the card's DOM (incl. an open embed) untouched.
+// Covers everything buildCard reads. URLs cannot contain a raw newline, so
+// the join is unambiguous.
+export function cardSignature(m) {
+  return [m.badge, m.url, m.codeKind || '', m.pending ? 'p' : '', m.embed?.src || '', m.app?.href || ''].join('\n');
+}

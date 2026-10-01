@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "releases": [
+    {
+      "musicBrainzReleaseId": "abe6ec54-cf70-493d-9cfc-b8cfb6016963",
+      "releaseGroupId": "489200b5-4efb-44bc-b1f3-b5320d26ee37",
+      "discogsReleaseId": 12280413,
+      "artist": "Lauriete",
+      "title": "Adoração",
+      "date": "1996",
+      "country": "BR",
+      "coverSource": "https://coverartarchive.org/release/abe6ec54-cf70-493d-9cfc-b8cfb6016963/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "c9efe8ad-13c7-4d23-a653-93e48fbb2d95",
+      "releaseGroupId": "3f256b20-a45a-4aeb-85ad-b558195d8d48",
+      "discogsReleaseId": 12461330,
+      "artist": "Feliciano Amaral",
+      "title": "À Luz Do Seu Amor",
+      "date": "1965",
+      "country": "BR",
+      "coverSource": "https://coverartarchive.org/release/c9efe8ad-13c7-4d23-a653-93e48fbb2d95/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "c2be2f9e-ba83-436d-a168-ca529ef02bf7",
+      "releaseGroupId": "5b0ef35b-6193-4212-a962-4c228295c960",
+      "discogsReleaseId": 14688279,
+      "artist": "Edwin Rutten",
+      "title": "Introduction to Edwin",
+      "date": "1962",
+      "country": "NL",
+      "coverSource": "https://coverartarchive.org/release/c2be2f9e-ba83-436d-a168-ca529ef02bf7/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "8462c4cf-7e81-4ec8-9353-7e43b3f5b186",
+      "releaseGroupId": "78284270-0d38-4dee-b36d-e4b18303f783",
+      "discogsReleaseId": 14984483,
+      "artist": "Various Artists",
+      "title": "As 14 Mais",
+      "date": "1965",
+      "country": "BR",
+      "coverSource": "https://coverartarchive.org/release/8462c4cf-7e81-4ec8-9353-7e43b3f5b186/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "03c0dcf6-97f6-449f-86d2-730108b729de",
+      "releaseGroupId": "ebac1305-b2d2-4d32-8587-29247cad9c6d",
+      "discogsReleaseId": 3113606,
+      "artist": "Sacha Distel",
+      "title": "Chanson bleue",
+      "date": "1972",
+      "country": "CA",
+      "coverSource": "https://coverartarchive.org/release/03c0dcf6-97f6-449f-86d2-730108b729de/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "45bb3b9e-c086-4be9-b4bc-246841090ccf",
+      "releaseGroupId": "4cbc29d2-e1c6-4c19-87c4-7c8ea7919970",
+      "discogsReleaseId": 10941544,
+      "artist": "Richard Robbins",
+      "title": "The Bostonians",
+      "date": "1984",
+      "country": "GB",
+      "coverSource": "https://coverartarchive.org/release/45bb3b9e-c086-4be9-b4bc-246841090ccf/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "7e296d68-c4ee-42e2-bd21-f216665f7aca",
+      "releaseGroupId": "70ad3d51-1fbb-4d6c-8ff8-331bc084a9e0",
+      "discogsReleaseId": 9001994,
+      "artist": "Sheila Walsh",
+      "title": "Future Eyes",
+      "date": "1984",
+      "country": "GB",
+      "coverSource": "https://coverartarchive.org/release/7e296d68-c4ee-42e2-bd21-f216665f7aca/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "3f23bc47-1e58-422f-9523-6344b22e7d37",
+      "releaseGroupId": "7a542dfe-392d-4354-8394-d22066c25061",
+      "discogsReleaseId": 8371483,
+      "artist": "Handel; Gillian Fisher, Patrizia Kwella, London Handel Orchestra, Denys Darlow",
+      "title": "Aminta e Fillide",
+      "date": "1984",
+      "country": "GB",
+      "coverSource": "https://coverartarchive.org/release/3f23bc47-1e58-422f-9523-6344b22e7d37/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "f9fadf91-2669-4416-8b08-fc532edbbf8d",
+      "releaseGroupId": "5649807f-7acc-4d8a-ace7-59da149f4b57",
+      "discogsReleaseId": 4532456,
+      "artist": "Moe Bandy & Joe Stampley",
+      "title": "The Good Ol' Boys: Alive and Well",
+      "date": "1984",
+      "country": "GB",
+      "coverSource": "https://coverartarchive.org/release/f9fadf91-2669-4416-8b08-fc532edbbf8d/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "d6c23b51-b6fa-4c62-9831-8eeefb15ac39",
+      "releaseGroupId": "6d375dcd-b34e-431f-a684-8a964411aa54",
+      "discogsReleaseId": 5825338,
+      "artist": "Hank Snow",
+      "title": "The Jimmie Rodgers Story",
+      "date": "1972",
+      "country": "AU",
+      "coverSource": "https://coverartarchive.org/release/d6c23b51-b6fa-4c62-9831-8eeefb15ac39/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "686b92f8-edac-4355-877e-3ef09f11b5ae",
+      "releaseGroupId": "5735f77f-8cc1-466e-9427-07de156e5fb0",
+      "discogsReleaseId": 4965406,
+      "artist": "Various Artists",
+      "title": "The Piano Blues, Vol. 20: 'Some Piano Player, I'll Tell You That' - Barrelhouse Years 1928-1933",
+      "date": "1984",
+      "country": "GB",
+      "coverSource": "https://coverartarchive.org/release/686b92f8-edac-4355-877e-3ef09f11b5ae/front-500"
+    },
+    {
+      "musicBrainzReleaseId": "aaef16e9-b5e5-466f-bc58-8cac950bfa6a",
+      "releaseGroupId": "ebe32a72-c114-48c4-8e2b-baa2fa00344b",
+      "discogsReleaseId": 5115523,
+      "artist": "20 Guilders",
+      "title": "The 20 Guilders / WHH",
+      "date": "2013-12-13",
+      "country": "JP",
+      "coverSource": "https://coverartarchive.org/release/aaef16e9-b5e5-466f-bc58-8cac950bfa6a/front-500"
+    }
+  ]
+}

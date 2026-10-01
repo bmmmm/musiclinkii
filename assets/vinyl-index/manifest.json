@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "model": "Xenova/dinov2-small",
+  "dtype": "q4",
+  "dimension": 384,
+  "releaseCount": 12,
+  "downloadBytes": 9653,
+  "generatedAt": "2026-09-03T23:20:31.402Z",
+  "source": {
+    "type": "long-tail-pilot",
+    "musicBrainzSeed": 240824,
+    "discogsMaxHave": 100,
+    "discogsMaxWant": 30
+  },
+  "shards": [
+    {
+      "index": "shard-000.bin",
+      "metadata": "shard-000.json",
+      "count": 12,
+      "bytes": 4620
+    }
+  ]
+}
