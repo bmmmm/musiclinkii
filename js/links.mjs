@@ -170,6 +170,20 @@ export function linkFromHash(hash) {
   }
 }
 
+// A text search's share hash carries queryText ("Artist - Title", or the
+// artist alone for an artist search). Read back, it must become the same
+// structured search again, not a link: the first " - " splits it, as the
+// artist comes first and a title may hold its own " - Remastered".
+export function searchFromShareText(text, kind = '') {
+  const k = kind || 'track';
+  const raw = (text || '').trim();
+  if (!raw) return null;
+  if (k === 'artist') return { kind: k, artist: raw, title: '' };
+  const at = raw.indexOf(' - ');
+  if (at < 0) return { kind: k, artist: '', title: raw };
+  return { kind: k, artist: raw.slice(0, at).trim(), title: raw.slice(at + 3).trim() };
+}
+
 export function vinylScanRequested(search) {
   return new URLSearchParams(search || '').get('scan') === 'vinyl';
 }

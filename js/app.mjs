@@ -4,10 +4,10 @@
 // the result reset, the surface sync, the share hash and the lookup
 // pipeline. Typing never triggers lookups; "Next search" is the only reset.
 
-import { parseInput } from './parsers.mjs';
+import { parseInput, looksLikeLink } from './parsers.mjs';
 import {
   PLATFORMS, regionFromLocale, sourceCardKeys, shareHashFor,
-  linkFromHash, vinylScanRequested, vinylScanSearch,
+  linkFromHash, searchFromShareText, vinylScanRequested, vinylScanSearch,
 } from './links.mjs';
 import {
   fetchMetadata, findExactLinks, findArtistLinks, findLinksByArtist,
@@ -1310,8 +1310,15 @@ if (shared) {
   if (KINDS.includes(shared.kind)) state.kind = shared.kind;
   syncKindToggle();
   syncKindUi();
-  el.input.value = shared.link;
-  commitFromInput();
+  // A text search shares its query text, not a link: replay it as the
+  // structured search it came from instead of failing as a bad link.
+  if (looksLikeLink(shared.link)) {
+    el.input.value = shared.link;
+    commitFromInput();
+  } else {
+    const q = searchFromShareText(shared.link, state.kind);
+    if (q) commitSearch({ ...q, origin: 'fields' });
+  }
 }
 
 if (vinylScanRequested(location.search)) {

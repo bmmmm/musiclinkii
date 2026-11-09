@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PLATFORMS, regionFromLocale, buildQuery, sourceCardKeys, shareHashFor,
-  linkFromHash, vinylScanRequested, vinylScanSearch,
+  linkFromHash, searchFromShareText, vinylScanRequested, vinylScanSearch,
 } from '../js/links.mjs';
 
 const DE = regionFromLocale('de-DE');
@@ -203,3 +203,21 @@ test('sourceCardKeys marks both YouTube cards for music.youtube links', () => {
 
 // cleanTitle/looselyMatches/searchableTitle/splitDashTitle/artistCandidates
 // tests moved to tests/adapters.test.mjs — this file is about URL builders.
+
+test('a shared text search reads back as the same structured search', () => {
+  const back = (text, kind) => {
+    const h = linkFromHash(shareHashFor(text, kind));
+    return searchFromShareText(h.link, h.kind);
+  };
+  assert.deepEqual(back('Shacke One - Wat is schon dran an som Tag', 'track'),
+    { kind: 'track', artist: 'Shacke One', title: 'Wat is schon dran an som Tag' });
+  assert.deepEqual(back('Daft Punk - Discovery', 'album'), { kind: 'album', artist: 'Daft Punk', title: 'Discovery' });
+  assert.deepEqual(back('Daft Punk', 'artist'), { kind: 'artist', artist: 'Daft Punk', title: '' });
+  // The first " - " splits: a title keeps its own suffix.
+  assert.deepEqual(back('Blur - Song 2 - Remastered'), { kind: 'track', artist: 'Blur', title: 'Song 2 - Remastered' });
+  // A title-only search has no separator.
+  assert.deepEqual(back('Atlas'), { kind: 'track', artist: '', title: 'Atlas' });
+  // An artist name containing " - " in an artist search stays whole.
+  assert.deepEqual(back('A - B', 'artist'), { kind: 'artist', artist: 'A - B', title: '' });
+  assert.equal(searchFromShareText('  '), null);
+});
